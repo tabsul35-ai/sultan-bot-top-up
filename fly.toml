@@ -1,0 +1,25 @@
+# Konfigurasi Fly.io untuk Sultan Top Up Bot.
+# `app` akan diisi otomatis oleh `fly launch` kalau namanya sudah dipakai.
+app = "sultan-topup-bot"
+primary_region = "sin"  # Singapore - paling dekat ke Indonesia
+
+[build]
+
+[env]
+  NODE_ENV = "production"
+
+# Bot Discord tidak menerima traffic HTTP masuk, jadi tidak ada [http_service].
+[processes]
+  app = "node dist/index.js"
+
+# Jalankan migrasi database sebelum versi baru online.
+[deploy]
+  release_command = "npx prisma migrate deploy"
+
+# Restart otomatis kalau proses berhenti/crash.
+[[restart]]
+  policy = "always"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"  # 256mb lebih murah tapi rawan OOM; 512mb aman untuk discord.js + prisma

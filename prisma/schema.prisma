@@ -1,0 +1,93 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrderStatus {
+  PENDING          // baru dibuat, menunggu konfirmasi user
+  WAITING_PAYMENT  // ticket dibuat, menunggu bukti bayar
+  PAID             // staff sudah verifikasi bukti bayar
+  PROCESSING       // robux sedang dikirim manual oleh admin
+  COMPLETED        // robux sudah terkirim
+  CANCELLED        // dibatalkan user/staff
+  REJECTED         // bukti pembayaran ditolak
+}
+
+enum ProductType {
+  ROBUX
+  KOSTUM
+}
+
+model User {
+  id              String   @id @default(cuid())
+  discordId       String   @unique
+  robloxUsername  String?
+  createdAt       DateTime @default(now())
+}
+
+model Order {
+  id               String        @id @default(cuid())
+  orderCode        String        @unique // format ST-XXXXXX
+  discordId        String
+  productType      ProductType   @default(ROBUX)
+  robloxUsername   String?
+  robuxAmount      Int?
+  price            Int           // dalam rupiah
+  status           OrderStatus   @default(PENDING)
+  ticketChannelId  String?       @unique
+  paymentProofUrl  String?
+  verifiedBy       String?
+  rejectedReason   String?
+  createdAt        DateTime      @default(now())
+  paidAt           DateTime?
+  completedAt      DateTime?
+  cancelledAt      DateTime?
+  logs             TransactionLog[]
+
+  @@index([discordId])
+  @@index([status])
+}
+
+// Singleton (id selalu 1) - info pembayaran manual yang ditampilkan lewat /pay
+model PaymentSetting {
+  id              Int      @id @default(1)
+  qris            String?  // caption/nomor QRIS, atau catatan "lihat lampiran"
+  qrisImageUrl    String?  // link gambar QRIS (opsional)
+  dana            String?
+  ovo             String?
+  gopay           String?
+  bankName        String?
+  bankAccount     String?
+  bankAccountName String?
+  note            String?  // instruksi tambahan
+  updatedAt       DateTime @updatedAt
+}
+
+// Singleton (id selalu 1) - pengaturan umum bot
+model BotSetting {
+  id                Int      @id @default(1)
+  robuxPricePerUnit Int      @default(160) // rupiah per 1 Robux
+  staffRoleId       String?
+  adminRoleId       String?
+  verifiedRoleId    String?  // role yang diberikan lewat tombol verifikasi member
+  verifyChannelId   String?  // channel tempat panel verifikasi dipasang (tetap publik saat /lockdown)
+  logChannelId      String?
+  orderCategoryId   String?
+  updatedAt         DateTime @updatedAt
+}
+
+model TransactionLog {
+  id        String   @id @default(cuid())
+  orderId   String?
+  order     Order?   @relation(fields: [orderId], references: [id])
+  type      String   // NEW_ORDER, PAYMENT_VERIFIED, PAYMENT_REJECTED, ORDER_COMPLETED, ORDER_CANCELLED, ADMIN_ACTION
+  message   String
+  actorId   String?  // discordId yang melakukan aksi (staff/user)
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+}
