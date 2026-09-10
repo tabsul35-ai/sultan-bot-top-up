@@ -31,8 +31,30 @@ client.on('messageCreate', (message) => {
   void handlePossiblePaymentProof(message);
 });
 
+/**
+ * Neon (free tier) menidurkan compute setelah idle. Koneksi pertama saat "bangun"
+ * bisa timeout - jadi dicoba beberapa kali dulu sebelum menyerah, supaya bot tidak
+ * crash-loop tiap kali database baru bangun.
+ */
+async function connectWithRetry(maxAttempts = 6, delayMs = 4000): Promise<void> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await prisma.$connect();
+      return;
+    } catch (err) {
+      const isLast = attempt === maxAttempts;
+      console.error(
+        `⏳ Gagal konek database (percobaan ${attempt}/${maxAttempts})${isLast ? '' : ', mencoba lagi...'}:`,
+        err instanceof Error ? err.message : err
+      );
+      if (isLast) throw err;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
 async function main() {
-  await prisma.$connect();
+  await connectWithRetry();
   console.log('✅ Terhubung ke database.');
   await client.login(config.discordToken);
 }
