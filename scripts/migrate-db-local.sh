@@ -3,23 +3,24 @@
 #   cd ~/sultan-bot-top-up && bash scripts/migrate-db-local.sh
 #
 # Script ini otomatis:
-#   1. install PostgreSQL 17 (kalau belum ada)
+#   1. install PostgreSQL (versi mengikuti server Neon, default 18)
 #   2. buat database + user
 #   3. stop bot, dump semua data dari Neon, restore ke database lokal
 #   4. ganti DATABASE_URL di .env ke localhost (.env lama di-backup)
 #   5. prisma migrate deploy + generate, lalu start bot lagi
 #
-# Aman diulang: langkah yang sudah beres akan dilewati.
+# Aman diulang. Kalau Neon suatu saat pindah ke PostgreSQL 19, jalankan:
+#   PG_MAJOR=19 bash scripts/migrate-db-local.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+PG_MAJOR="${PG_MAJOR:-18}"
 DB_NAME="${DB_NAME:-sultan_topup}"
 DB_USER="${DB_USER:-sultan}"
 PM2_NAME="${PM2_NAME:-sultan-bot}"
 ENV_FILE=".env"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
-# psql sebagai superuser, jalan baik saat login root maupun user biasa (sudo)
 psql_super() {
   if [ "$(id -u)" -eq 0 ]; then su -s /bin/sh postgres -c "psql $*"
   else sudo -u postgres psql "$@"; fi
@@ -34,7 +35,7 @@ case "$NEON_URL" in
   *neon.tech*) : ;;
   *localhost*) echo "DATABASE_URL sudah menunjuk localhost. Sepertinya sudah dipindah. Berhenti."; exit 0 ;;
   "") echo "ERROR: DATABASE_URL kosong di $ENV_FILE" >&2; exit 1 ;;
-  *) echo "PERINGATAN: DATABASE_URL bukan Neon:"; echo "  $NEON_URL";
+  *) echo "PERINGATAN: DATABASE_URL bukan Neon:"; echo "  $NEON_URL"
      read -r -p "Pakai URL ini sebagai sumber dump? [y/N] " a; [ "$a" = y ] || exit 1 ;;
 esac
 
@@ -42,19 +43,39 @@ esac
 DB_PASS="${DB_PASS:-$(openssl rand -hex 16)}"
 LOCAL_URL="postgresql://${DB_USER}:${DB_PASS}@localhost:5432/${DB_NAME}?schema=public"
 
-# --- 3. Install PostgreSQL 17 kalau belum ada ---
-if ! command -v psql >/dev/null 2>&1; then
-  echo "==> Install PostgreSQL 17 (repo resmi PGDG)"
-  APT install -y curl ca-certificates
+# --- 3. Pasang PostgreSQL ${PG_MAJOR} kalau belum ada ---
+if ! psql --version 2>/dev/null | grep -qE "PostgreSQL\) ${PG_MAJOR}\."; then
+  echo "==> Menyiapkan PostgreSQL ${PG_MAJOR} (repo resmi PGDG)"
+  APT install -y curl ca-certificates gnupg
   AS_ROOT install -d /usr/share/postgresql-common/pgdg
-  AS_ROOT curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail \
+  AS_ROOT curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
     https://www.postgresql.org/media/keys/ACCC4CF8.asc
-  echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo "$VERSION_CODENAME")-pgdg main" \
+  . /etc/os-release
+  echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
     | AS_ROOT tee /etc/apt/sources.list.d/pgdg.list >/dev/null
   APT update -y
-  APT install -y postgresql-17
+
+  # buang PostgreSQL versi lain yang lebih lama supaya cluster ${PG_MAJOR} memakai port 5432
+  if [ -d /etc/postgresql ]; then
+    for old in $(ls /etc/postgresql | grep -vx "${PG_MAJOR}" || true); do
+      echo "==> Menghapus PostgreSQL ${old} yang lama (belum ada data penting)"
+      AS_ROOT pg_dropcluster --stop "${old}" main 2>/dev/null || true
+      AS_ROOT apt-get purge -y "postgresql-${old}" "postgresql-client-${old}" 2>/dev/null || true
+    done
+    AS_ROOT apt-get autoremove -y 2>/dev/null || true
+  fi
+
+  APT install -y "postgresql-${PG_MAJOR}"
 fi
 AS_ROOT systemctl enable --now postgresql
+
+# pastikan cluster ${PG_MAJOR} mendengarkan di port 5432
+PGPORT="$(AS_ROOT pg_lsclusters -h 2>/dev/null | awk -v v="${PG_MAJOR}" '$1==v && $2=="main"{print $3}')"
+if [ -n "${PGPORT:-}" ] && [ "$PGPORT" != "5432" ]; then
+  echo "==> Pindahkan PostgreSQL ${PG_MAJOR} dari port ${PGPORT} ke 5432"
+  AS_ROOT pg_dropcluster --stop "${PG_MAJOR}" main
+  AS_ROOT pg_createcluster --start -p 5432 "${PG_MAJOR}" main
+fi
 echo "==> $(psql --version)"
 
 # --- 4. Buat user + database (idempoten) ---
@@ -79,8 +100,9 @@ DUMP="neon-backup-${STAMP}.sql"
 echo "==> Dump dari Neon ke $DUMP"
 pg_dump "$NEON_URL" --no-owner --no-privileges --no-comments --format=plain --file="$DUMP"
 [ -s "$DUMP" ] || { echo "ERROR: hasil dump kosong." >&2; exit 1; }
-echo "==> Restore ke database lokal (error soal 'extension'/'neon_superuser' aman diabaikan)"
-psql "$LOCAL_URL" -v ON_ERROR_STOP=0 -f "$DUMP" >/dev/null
+
+echo "==> Restore ke database lokal (warning disimpan ke restore-${STAMP}.log)"
+psql "$LOCAL_URL" -v ON_ERROR_STOP=0 -f "$DUMP" >/dev/null 2>"restore-${STAMP}.log" || true
 
 echo "==> Jumlah baris di database lokal:"
 for t in User Order BotSetting PaymentSetting TransactionLog; do
@@ -109,8 +131,9 @@ cat <<INFO
 
  Backup dump Neon : ${DUMP}
  Backup .env lama : ${ENV_FILE}.bak-${STAMP}
+ Log restore      : restore-${STAMP}.log
 ==================================================
- Cek log:  pm2 logs ${PM2_NAME} --lines 30
+ Cek log bot:  pm2 logs ${PM2_NAME} --lines 30
  Harus muncul: "Terhubung ke database" & "Bot online"
 
  Rollback: kembalikan DATABASE_URL dari file .bak lalu
