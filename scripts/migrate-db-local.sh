@@ -4,13 +4,15 @@
 #
 # Script ini otomatis:
 #   1. install PostgreSQL (versi mengikuti server Neon, default 18)
-#   2. buat database + user
+#   2. buat user + database lokal yang bersih
 #   3. stop bot, dump semua data dari Neon, restore ke database lokal
 #   4. ganti DATABASE_URL di .env ke localhost (.env lama di-backup)
-#   5. prisma migrate deploy + generate, lalu start bot lagi
+#   5. prisma generate + migrate deploy, lalu start bot lagi
 #
-# Aman diulang. Kalau Neon suatu saat pindah ke PostgreSQL 19, jalankan:
-#   PG_MAJOR=19 bash scripts/migrate-db-local.sh
+# Aman diulang. Kalau database lokal sudah berisi order sungguhan, script
+# berhenti demi keamanan; timpa paksa dengan:  FORCE=1 bash scripts/migrate-db-local.sh
+# Kalau Neon pindah ke PostgreSQL 19:            PG_MAJOR=19 bash scripts/migrate-db-local.sh
+# Sumber Neon bisa dipaksa manual:               NEON_URL='postgresql://...neon.tech/...' bash scripts/migrate-db-local.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -27,21 +29,34 @@ psql_super() {
 }
 APT() { if [ "$(id -u)" -eq 0 ]; then apt-get "$@"; else sudo apt-get "$@"; fi; }
 AS_ROOT() { if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi; }
+url_from() { grep -E '^DATABASE_URL=' "$1" 2>/dev/null | head -1 | sed -E 's/^DATABASE_URL=//; s/^"//; s/"$//'; }
 
-# --- 1. Ambil URL Neon dari .env lama ---
+# --- 1. Tentukan URL Neon (sumber data) ---
 [ -f "$ENV_FILE" ] || { echo "ERROR: $ENV_FILE tidak ada. Jalankan dari folder repo." >&2; exit 1; }
-NEON_URL="$(grep -E '^DATABASE_URL=' "$ENV_FILE" | head -1 | sed -E 's/^DATABASE_URL=//; s/^"//; s/"$//')"
-case "$NEON_URL" in
+NEON_URL="${NEON_URL:-}"
+if [ -z "$NEON_URL" ]; then
+  cur="$(url_from "$ENV_FILE")"
+  case "$cur" in
+    *neon.tech*) NEON_URL="$cur" ;;
+    *)  # .env sudah localhost (script pernah jalan) - cari di backup .env terbaru
+      for f in $(ls -t "${ENV_FILE}".bak-* 2>/dev/null || true); do
+        b="$(url_from "$f")"
+        case "$b" in *neon.tech*) NEON_URL="$b"; echo "==> URL Neon diambil dari $f" ; break ;; esac
+      done ;;
+  esac
+fi
+case "${NEON_URL:-}" in
   *neon.tech*) : ;;
-  *localhost*) echo "DATABASE_URL sudah menunjuk localhost. Sepertinya sudah dipindah. Berhenti."; exit 0 ;;
-  "") echo "ERROR: DATABASE_URL kosong di $ENV_FILE" >&2; exit 1 ;;
-  *) echo "PERINGATAN: DATABASE_URL bukan Neon:"; echo "  $NEON_URL"
-     read -r -p "Pakai URL ini sebagai sumber dump? [y/N] " a; [ "$a" = y ] || exit 1 ;;
+  "") echo "ERROR: tidak menemukan URL Neon di .env maupun backup." >&2
+      echo "Jalankan lagi dengan: NEON_URL='postgresql://...neon.tech/...' bash scripts/migrate-db-local.sh" >&2; exit 1 ;;
+  *)  echo "PERINGATAN: NEON_URL bukan neon.tech:"; echo "  $NEON_URL"
+      read -r -p "Lanjut pakai URL ini sebagai sumber dump? [y/N] " a; [ "$a" = y ] || exit 1 ;;
 esac
 
-# --- 2. Password DB lokal (acak kalau tidak diisi lewat env DB_PASS) ---
+# --- 2. Alamat database lokal ---
 DB_PASS="${DB_PASS:-$(openssl rand -hex 16)}"
-LOCAL_URL="postgresql://${DB_USER}:${DB_PASS}@localhost:5432/${DB_NAME}?schema=public"
+PG_URL="postgresql://${DB_USER}:${DB_PASS}@localhost:5432/${DB_NAME}"   # untuk psql (libpq)
+PRISMA_URL="${PG_URL}?schema=public"                                    # untuk .env (Prisma)
 
 # --- 3. Pasang PostgreSQL ${PG_MAJOR} kalau belum ada ---
 if ! psql --version 2>/dev/null | grep -qE "PostgreSQL\) ${PG_MAJOR}\."; then
@@ -54,8 +69,6 @@ if ! psql --version 2>/dev/null | grep -qE "PostgreSQL\) ${PG_MAJOR}\."; then
   echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
     | AS_ROOT tee /etc/apt/sources.list.d/pgdg.list >/dev/null
   APT update -y
-
-  # buang PostgreSQL versi lain yang lebih lama supaya cluster ${PG_MAJOR} memakai port 5432
   if [ -d /etc/postgresql ]; then
     for old in $(ls /etc/postgresql | grep -vx "${PG_MAJOR}" || true); do
       echo "==> Menghapus PostgreSQL ${old} yang lama (belum ada data penting)"
@@ -64,12 +77,10 @@ if ! psql --version 2>/dev/null | grep -qE "PostgreSQL\) ${PG_MAJOR}\."; then
     done
     AS_ROOT apt-get autoremove -y 2>/dev/null || true
   fi
-
   APT install -y "postgresql-${PG_MAJOR}"
 fi
 AS_ROOT systemctl enable --now postgresql
 
-# pastikan cluster ${PG_MAJOR} mendengarkan di port 5432
 PGPORT="$(AS_ROOT pg_lsclusters -h 2>/dev/null | awk -v v="${PG_MAJOR}" '$1==v && $2=="main"{print $3}')"
 if [ -n "${PGPORT:-}" ] && [ "$PGPORT" != "5432" ]; then
   echo "==> Pindahkan PostgreSQL ${PG_MAJOR} dari port ${PGPORT} ke 5432"
@@ -78,8 +89,8 @@ if [ -n "${PGPORT:-}" ] && [ "$PGPORT" != "5432" ]; then
 fi
 echo "==> $(psql --version)"
 
-# --- 4. Buat user + database (idempoten) ---
-echo "==> Siapkan role & database lokal"
+# --- 4. Buat / setel ulang role ---
+echo "==> Siapkan role lokal '${DB_USER}'"
 psql_super -v ON_ERROR_STOP=1 <<SQL
 DO \$\$ BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${DB_USER}') THEN
@@ -88,35 +99,47 @@ DO \$\$ BEGIN
     ALTER ROLE ${DB_USER} PASSWORD '${DB_PASS}';
   END IF;
 END \$\$;
-SELECT 'CREATE DATABASE ${DB_NAME} OWNER ${DB_USER}'
-WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${DB_NAME}')\gexec
 SQL
 
-# --- 5. Stop bot supaya tidak ada order masuk di tengah migrasi ---
+# --- 5. Pengaman: jangan timpa database yang sudah berisi order ---
+EXISTING="$(psql "$PG_URL" -tAc 'SELECT count(*) FROM "Order"' 2>/dev/null | tr -d '[:space:]' || true)"
+if [ -n "${EXISTING:-}" ] && [ "${EXISTING:-0}" -gt 0 ] && [ "${FORCE:-0}" != "1" ]; then
+  echo
+  echo "STOP: database '${DB_NAME}' sudah berisi ${EXISTING} order - tidak ditimpa."
+  echo "Kalau memang ingin hapus & ambil ulang dari Neon:"
+  echo "   FORCE=1 bash scripts/migrate-db-local.sh"
+  exit 1
+fi
+
+# --- 6. Buat ulang database bersih ---
+echo "==> Buat ulang database '${DB_NAME}' (bersih)"
+psql_super -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"${DB_NAME}\";"
+psql_super -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"${DB_NAME}\" OWNER \"${DB_USER}\";"
+
+# --- 7. Stop bot, dump dari Neon, restore ke lokal ---
 pm2 stop "$PM2_NAME" 2>/dev/null || true
 
-# --- 6. Dump dari Neon -> restore ke lokal ---
 DUMP="neon-backup-${STAMP}.sql"
 echo "==> Dump dari Neon ke $DUMP"
 pg_dump "$NEON_URL" --no-owner --no-privileges --no-comments --format=plain --file="$DUMP"
 [ -s "$DUMP" ] || { echo "ERROR: hasil dump kosong." >&2; exit 1; }
 
-echo "==> Restore ke database lokal (warning disimpan ke restore-${STAMP}.log)"
-psql "$LOCAL_URL" -v ON_ERROR_STOP=0 -f "$DUMP" >/dev/null 2>"restore-${STAMP}.log" || true
+echo "==> Restore ke database lokal (warning -> restore-${STAMP}.log)"
+psql "$PG_URL" -v ON_ERROR_STOP=0 -f "$DUMP" >/dev/null 2>"restore-${STAMP}.log"
 
 echo "==> Jumlah baris di database lokal:"
 for t in User Order BotSetting PaymentSetting TransactionLog; do
-  n="$(psql "$LOCAL_URL" -tAc "SELECT count(*) FROM \"$t\";" 2>/dev/null || echo '(tabel tidak ada)')"
-  printf '    %-16s %s\n' "$t" "$n"
+  n="$(psql "$PG_URL" -tAc "SELECT count(*) FROM \"$t\";" 2>/dev/null | tr -d '[:space:]' || true)"
+  printf '    %-16s %s\n' "$t" "${n:-(tabel tidak ada)}"
 done
 
-# --- 7. Ganti DATABASE_URL di .env ---
+# --- 8. Ganti DATABASE_URL di .env ---
 cp "$ENV_FILE" "${ENV_FILE}.bak-${STAMP}"
-sed -i -E "s#^DATABASE_URL=.*#DATABASE_URL=\"${LOCAL_URL}\"#" "$ENV_FILE"
+sed -i -E "s#^DATABASE_URL=.*#DATABASE_URL=\"${PRISMA_URL}\"#" "$ENV_FILE"
 
-# --- 8. Prisma + start bot ---
-npx prisma migrate deploy || echo "(migrate deploy: tidak ada yang perlu diterapkan - normal)"
+# --- 9. Prisma + start bot ---
 npx prisma generate
+npx prisma migrate deploy || echo "(migrate deploy: tidak ada yang perlu diterapkan - normal)"
 pm2 restart "$PM2_NAME" --update-env 2>/dev/null || pm2 start dist/index.js --name "$PM2_NAME"
 pm2 save
 
@@ -133,7 +156,7 @@ cat <<INFO
  Backup .env lama : ${ENV_FILE}.bak-${STAMP}
  Log restore      : restore-${STAMP}.log
 ==================================================
- Cek log bot:  pm2 logs ${PM2_NAME} --lines 30
+ Cek log bot:  pm2 logs ${PM2_NAME} --lines 30 --nostream
  Harus muncul: "Terhubung ke database" & "Bot online"
 
  Rollback: kembalikan DATABASE_URL dari file .bak lalu
