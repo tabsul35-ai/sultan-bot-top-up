@@ -24,7 +24,7 @@ ENV_FILE=".env"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
 psql_super() {
-  if [ "$(id -u)" -eq 0 ]; then su -s /bin/sh postgres -c "psql $*"
+  if [ "$(id -u)" -eq 0 ]; then su -s /bin/sh -c 'exec psql "$@"' postgres psql "$@"
   else sudo -u postgres psql "$@"; fi
 }
 APT() { if [ "$(id -u)" -eq 0 ]; then apt-get "$@"; else sudo apt-get "$@"; fi; }
@@ -111,14 +111,13 @@ if [ -n "${EXISTING:-}" ] && [ "${EXISTING:-0}" -gt 0 ] && [ "${FORCE:-0}" != "1
   exit 1
 fi
 
-# --- 6. Buat ulang database bersih ---
-echo "==> Buat ulang database '${DB_NAME}' (bersih)"
-psql_super -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"${DB_NAME}\";"
-psql_super -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"${DB_NAME}\" OWNER \"${DB_USER}\";"
-
-# --- 7. Stop bot, dump dari Neon, restore ke lokal ---
+# --- 6. Stop bot + buat ulang database bersih ---
 pm2 stop "$PM2_NAME" 2>/dev/null || true
+echo "==> Buat ulang database '${DB_NAME}' (bersih)"
+psql_super -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"${DB_NAME}\" WITH (FORCE);"
+psql_super -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"${DB_NAME}\" OWNER \"${DB_USER}\";"
 
+# --- 7. Dump dari Neon, restore ke lokal ---
 DUMP="neon-backup-${STAMP}.sql"
 echo "==> Dump dari Neon ke $DUMP"
 pg_dump "$NEON_URL" --no-owner --no-privileges --no-comments --format=plain --file="$DUMP"
