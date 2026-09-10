@@ -24,8 +24,8 @@ ENV_FILE=".env"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
 psql_super() {
-  if [ "$(id -u)" -eq 0 ]; then su -s /bin/sh -c 'exec psql "$@"' postgres psql "$@"
-  else sudo -u postgres psql "$@"; fi
+  if command -v sudo >/dev/null 2>&1; then sudo -u postgres psql "$@"
+  else su -s /bin/sh -c 'exec psql "$@"' postgres -- psql "$@"; fi
 }
 APT() { if [ "$(id -u)" -eq 0 ]; then apt-get "$@"; else sudo apt-get "$@"; fi; }
 AS_ROOT() { if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi; }
