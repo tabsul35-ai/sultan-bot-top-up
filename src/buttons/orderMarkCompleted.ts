@@ -35,7 +35,7 @@ export async function handleOrderMarkCompleted(interaction: ButtonInteraction, o
   await interaction.reply({
     embeds: [
       successEmbed(
-        `Order **${order.orderCode}** selesai! ${order.robuxAmount} Robux telah dikirim ke **${order.robloxUsername}**.\n\nTerima kasih <@${order.discordId}> sudah berbelanja di Sultan Top Up 👑\n\nStaff dapat menutup ticket ini dengan tombol 🔒 Tutup Ticket.`
+        `Order **${order.orderCode}** selesai! ${order.robuxAmount} Robux telah dikirim ke **${order.robloxUsername}**.\n\nTerima kasih <@${order.discordId}> sudah berbelanja di Sultan Top Up 👑\n\nStaff dapat menutup ticket ini dengan tombol ✅ Selesai atau 🔒 Tutup Ticket.`
       ),
     ],
   });
