@@ -1,5 +1,9 @@
 # Deploy 24/7 ke Fly.io
 
+> **Catatan:** Bot ini sekarang di-deploy ke **VPS RumahWeb** dengan database **PostgreSQL lokal**.
+> Panduan yang berlaku: [DEPLOY-VPS.md](DEPLOY-VPS.md). Dokumen Fly.io + Neon di bawah ini
+> disimpan sebagai arsip dan tidak lagi dipakai.
+
 Panduan agar bot tetap online walau PC dimatikan. Database tetap memakai **Neon** (yang sekarang) — tidak perlu diubah.
 
 > Biaya: Fly.io tidak lagi punya "free tier" resmi, tapi tidak menagih pemakaian di bawah ~$5/bulan.
