@@ -4,6 +4,28 @@ import { PrismaClient } from '@prisma/client';
 export const prisma = new PrismaClient();
 
 /**
+ * Neon (free tier) menidurkan compute setelah ~5 menit idle. Query pertama saat
+ * "bangun" bisa gagal P1001/P1002/P1017 walau beberapa detik kemudian sudah normal.
+ * Middleware ini mengulang query yang kena error koneksi sementara, jadi user tidak
+ * langsung dapat "Terjadi kesalahan".
+ */
+const TRANSIENT_DB_ERRORS = new Set(['P1001', 'P1002', 'P1008', 'P1017']);
+
+prisma.$use(async (params, next) => {
+  const maxAttempts = 3;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await next(params);
+    } catch (err) {
+      const code = (err as { code?: string })?.code;
+      if (!code || !TRANSIENT_DB_ERRORS.has(code) || attempt >= maxAttempts) throw err;
+      // jeda 0.7s lalu 1.4s - biasanya cukup untuk Neon bangun tanpa melewati batas 3 detik Discord
+      await new Promise((resolve) => setTimeout(resolve, 700 * attempt));
+    }
+  }
+});
+
+/**
  * Ambil BotSetting (harga robux, role staff/admin, dsb).
  * Membuat baris default jika belum ada.
  */
