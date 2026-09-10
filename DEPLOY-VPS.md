@@ -169,7 +169,7 @@ pm2 restart sultan-bot
 |---|---|
 | `git clone` minta username/password | Repo masih Private. Jadikan **Public**, atau `git clone https://TOKEN@github.com/...` pakai Personal Access Token GitHub. |
 | `bash: scripts/setup-server.sh: No such file` | Belum `cd sultan-bot-top-up`. |
-| `prisma migrate deploy` → `Can't reach database server` | `DATABASE_URL` di `.env` salah/kurang. Samakan persis dengan `.env` di PC (termasuk `?sslmode=require...`). |
+| `prisma migrate deploy` → `P1001 Can't reach database server` di VPS | Bug lama Prisma schema-engine + Neon. Bot yang jalan **tetap normal** (pakai engine berbeda). Untuk perubahan skema baru: jalankan `npx prisma migrate deploy` dari **PC Windows** (di sana jalan) ke Neon yang sama, lalu `git pull` + build di VPS. `scripts/update.sh` sudah mengabaikan error ini. |
 | Bot jalan, command Discord tak muncul | Tunggu 1 menit; cek `pm2 logs` ada baris "slash command didaftarkan". |
 | Bot mati setelah reboot VPS | Perintah dari `pm2 startup` belum dijalankan, atau `pm2 save` belum. |
 | Balas dobel | Bot lokal / bot lama belum dimatikan. |
