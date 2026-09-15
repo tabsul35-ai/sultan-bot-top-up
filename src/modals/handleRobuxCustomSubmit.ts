@@ -8,6 +8,7 @@ import {
   calculateRobuxPrice,
   isAllowedRobuxAmount,
 } from '../services/robux/robuxPricing';
+import { hasEnoughStock } from '../services/robux/robuxStock';
 import { getBotSetting } from '../database/prisma';
 import { buildOrderConfirmView } from '../utils/orderConfirm';
 import { errorEmbed } from '../utils/embeds';
@@ -52,9 +53,22 @@ export async function handleRobuxCustomSubmit(interaction: ModalSubmitInteractio
     return;
   }
 
+  const setting = await getBotSetting();
+
+  if (!hasEnoughStock(amount, setting)) {
+    await interaction.reply({
+      embeds: [
+        errorEmbed(
+          `Stok Robux saat ini tidak cukup untuk **${amount.toLocaleString('id-ID')} Robux** (tersisa **${(setting.robuxStockCache ?? 0).toLocaleString('id-ID')} Robux**). Pilih jumlah lebih kecil atau coba lagi nanti.`
+        ),
+      ],
+      ephemeral: true,
+    });
+    return;
+  }
+
   setPendingRobuxUsername(interaction.user.id, username);
 
-  const setting = await getBotSetting();
   const price = calculateRobuxPrice(amount, setting.robuxPricePerUnit);
 
   await interaction.reply({

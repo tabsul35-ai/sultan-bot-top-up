@@ -41,6 +41,48 @@ Harus ada `✅ Terhubung ke database.` dan `👑 ... online` tanpa error merah.
 
 ---
 
+## Stok Robux otomatis (opsional)
+
+Bot bisa membaca saldo Robux akun Roblox penjual secara berkala (tiap 5 menit) dan
+memakainya sebagai "stok" — order dengan jumlah melebihi stok otomatis diblokir saat user
+memilih, dan staff dapat peringatan kalau stok kurang saat verifikasi pembayaran.
+
+### Aktifkan
+
+1. Login ke akun Roblox yang dipakai jualan (**sarankan akun terpisah, bukan akun utama**)
+   lewat browser di PC.
+2. Buka DevTools (`F12`) → tab **Application** (Chrome) / **Storage** (Firefox) → **Cookies**
+   → `https://www.roblox.com` → cari baris `.ROBLOSECURITY` → copy value-nya (panjang,
+   diawali `_|WARNING:-DO-NOT-SHARE-THIS...`).
+3. **Di VPS**, tambahkan baris ini ke `.env`:
+   ```bash
+   nano ~/sultan-bot-top-up/.env
+   ```
+   Tambahkan:
+   ```
+   ROBLOX_COOKIE=isi_cookie_disini
+   ```
+4. Restart bot: `pm2 restart sultan-bot --update-env`
+5. Tes: `/admin refreshstock` di Discord. Kalau berhasil, `/admin settings` menampilkan
+   field **Stok Robux (live)**.
+
+> **Cookie ini setara password penuh akun Roblox itu** (bisa transfer Robux, ganti password,
+> dll). Perlakukan seperti `DISCORD_TOKEN` atau `DATABASE_URL` — jangan pernah share, jangan
+> commit ke git, jangan tempel di channel Discord manapun (termasuk log channel bot).
+
+Kalau kosongkan `ROBLOX_COOKIE`, fitur ini nonaktif diam-diam — bot jalan normal seperti
+sebelumnya (transaksi tetap manual, tanpa pengecekan stok).
+
+### Troubleshooting stok
+
+| Gejala | Solusi |
+|---|---|
+| `/admin refreshstock` → "cookie kedaluwarsa/tidak valid" | Cookie salah copy, atau Roblox memaksa logout (ganti IP/device baru, ganti password). Ambil ulang cookie dari langkah 1-2, update `.env`, restart. |
+| Stok tidak berubah walau sudah restock manual di Roblox | Tunggu maks 5 menit (interval polling), atau jalankan `/admin refreshstock`. |
+| Warning "Gagal ambil stok Robux" di log channel | Sama seperti di atas — cookie perlu diperbarui. Transaksi tetap jalan normal selama ini terjadi. |
+
+---
+
 ## Backup database
 
 Database sekarang di VPS sendiri — **tidak ada backup otomatis** seperti Neon. Backup manual:

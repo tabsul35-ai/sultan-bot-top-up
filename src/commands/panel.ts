@@ -40,7 +40,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
   });
 
   const setting = await getBotSetting();
-  await channel.send(buildRobuxPanel(setting.robuxPricePerUnit));
+  await channel.send(buildRobuxPanel(setting.robuxPricePerUnit, setting));
 
   await interaction.editReply({
     embeds: [successEmbed('Panel pembelian Robux dipasang di channel ini.' + catatan)],

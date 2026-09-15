@@ -4,6 +4,7 @@ import { deployCommands } from './commands/deploy-commands';
 import { handleInteraction } from './events/interactionCreate';
 import { handlePossiblePaymentProof } from './events/paymentProofListener';
 import { prisma } from './database/prisma';
+import { startRobuxStockPolling } from './services/roblox/stockPoller';
 
 const client = new Client({
   intents: [
@@ -21,6 +22,7 @@ client.once('ready', async () => {
   } catch (err) {
     console.error('⚠️ Gagal mendaftarkan slash command otomatis (bot tetap jalan):', err);
   }
+  startRobuxStockPolling(client);
 });
 
 client.on('interactionCreate', (interaction) => {

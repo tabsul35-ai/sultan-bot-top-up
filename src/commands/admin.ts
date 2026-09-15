@@ -3,6 +3,8 @@ import { prisma, getBotSetting, getPaymentSetting } from '../database/prisma';
 import { isAdmin } from '../utils/permissions';
 import { errorEmbed, successEmbed, baseEmbed } from '../utils/embeds';
 import { formatRupiah } from '../services/robux/robuxPricing';
+import { formatStockLine } from '../services/robux/robuxStock';
+import { refreshRobuxStock } from '../services/roblox/stockPoller';
 
 /**
  * Upload lewat slash command = "ephemeral attachment" yang link-nya tidak bisa dipakai ulang
@@ -78,7 +80,10 @@ export const data = new SlashCommandBuilder()
       .addChannelOption((opt) => opt.setName('kategori').setDescription('Kategori tempat ticket dibuat').setRequired(false))
   )
   .addSubcommand((sub) => sub.setName('settings').setDescription('Lihat pengaturan saat ini'))
-  .addSubcommand((sub) => sub.setName('stats').setDescription('Lihat statistik transaksi'));
+  .addSubcommand((sub) => sub.setName('stats').setDescription('Lihat statistik transaksi'))
+  .addSubcommand((sub) =>
+    sub.setName('refreshstock').setDescription('Paksa ambil ulang stok Robux live dari akun Roblox sekarang')
+  );
 
 export async function execute(interaction: ChatInputCommandInteraction) {
   if (!(interaction.member instanceof GuildMember) || !(await isAdmin(interaction.member))) {
@@ -222,6 +227,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       .setTitle('⚙️ Pengaturan Saat Ini')
       .addFields(
         { name: 'Harga Robux', value: `${formatRupiah(botSetting.robuxPricePerUnit)} / Robux`, inline: true },
+        { name: 'Stok Robux (live)', value: formatStockLine(botSetting), inline: true },
         { name: 'Staff Role', value: botSetting.staffRoleId ? `<@&${botSetting.staffRoleId}>` : '-', inline: true },
         { name: 'Admin Role', value: botSetting.adminRoleId ? `<@&${botSetting.adminRoleId}>` : '-', inline: true },
         { name: 'Role Verifikasi', value: botSetting.verifiedRoleId ? `<@&${botSetting.verifiedRoleId}>` : '-', inline: true },
@@ -238,6 +244,31 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       );
 
     await interaction.reply({ embeds: [embed], ephemeral: true });
+    return;
+  }
+
+  if (sub === 'refreshstock') {
+    await interaction.deferReply({ ephemeral: true });
+
+    const stock = await refreshRobuxStock(interaction.client);
+    const setting = await getBotSetting();
+
+    if (stock === null && !setting.robuxStockCache) {
+      await interaction.editReply({
+        embeds: [
+          errorEmbed(
+            setting.robuxStockError
+              ? `Gagal ambil stok: ${setting.robuxStockError}`
+              : 'Stok live belum aktif - isi `ROBLOX_COOKIE` di `.env` VPS dulu, lalu restart bot.'
+          ),
+        ],
+      });
+      return;
+    }
+
+    await interaction.editReply({
+      embeds: [successEmbed(`Stok Robux live diperbarui: **${formatStockLine(setting)}**.`)],
+    });
     return;
   }
 

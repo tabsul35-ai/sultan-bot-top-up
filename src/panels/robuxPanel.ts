@@ -6,6 +6,8 @@ import {
   formatRupiah,
   getRobuxOptions,
 } from '../services/robux/robuxPricing';
+import { formatStockLine, isStockTrackingEnabled } from '../services/robux/robuxStock';
+import type { BotSetting } from '@prisma/client';
 import { baseEmbed } from '../utils/embeds';
 import { CustomId } from '../types/customIds';
 
@@ -21,7 +23,10 @@ export const PANEL_ROBUX_TITLE = '💎 Pembelian Robux';
  * Harga di deskripsi tiap opsi "dibekukan" saat panel diposting. Jika harga diubah
  * lewat `/admin setprice`, jalankan `/panel` lagi untuk memposting panel yang baru.
  */
-export function buildRobuxPanel(pricePerUnit: number) {
+export function buildRobuxPanel(
+  pricePerUnit: number,
+  stockSetting?: Pick<BotSetting, 'robuxStockCache' | 'robuxStockError' | 'robuxStockUpdatedAt'>
+) {
   const options = getRobuxOptions().map((amount) => ({
     label: `${amount.toLocaleString('id-ID')} Robux`,
     description: `Total ${formatRupiah(calculateRobuxPrice(amount, pricePerUnit))}`,
@@ -47,6 +52,7 @@ export function buildRobuxPanel(pricePerUnit: number) {
         `Butuh jumlah lain? Pilih **✏️ Jumlah lain (custom)** (${ROBUX_CUSTOM_MIN.toLocaleString('id-ID')}–${ROBUX_CUSTOM_MAX.toLocaleString('id-ID')} Robux).`,
         '',
         `Harga saat ini: **${formatRupiah(pricePerUnit)} / Robux**`,
+        ...(stockSetting && isStockTrackingEnabled(stockSetting) ? [`Stok saat ini: **${formatStockLine(stockSetting)}**`] : []),
         'Setelah memilih, Anda mengisi username Roblox, lalu ticket order otomatis dibuat lengkap dengan info pembayaran.',
       ].join('\n')
     );

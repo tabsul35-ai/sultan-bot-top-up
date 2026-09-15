@@ -13,6 +13,10 @@ export const config = {
   clientId: required('DISCORD_CLIENT_ID'),
   guildId: process.env.DISCORD_GUILD_ID || '', // opsional, untuk deploy command per-guild (lebih cepat saat dev)
   databaseUrl: required('DATABASE_URL'),
+  // Cookie sesi .ROBLOSECURITY akun Roblox penjual, untuk baca saldo Robux otomatis (stok live).
+  // Opsional - kalau kosong, fitur stok live nonaktif dan bot jalan seperti biasa. SANGAT SENSITIF,
+  // perlakukan seperti password (lihat src/services/roblox/robloxApi.ts).
+  robloxCookie: process.env.ROBLOX_COOKIE || '',
 };
 
 export const BRAND = {

@@ -1,10 +1,11 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ButtonInteraction, GuildMember } from 'discord.js';
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, ProductType } from '@prisma/client';
 import { getOrderById, verifyPayment } from '../services/order/orderService';
 import { isStaffOrAdmin } from '../utils/permissions';
 import { errorEmbed, successEmbed } from '../utils/embeds';
 import { logTransaction } from '../utils/logger';
 import { CustomId, buildCustomId } from '../types/customIds';
+import { refreshRobuxStock } from '../services/roblox/stockPoller';
 
 export async function handlePaymentVerify(interaction: ButtonInteraction, orderId: string) {
   if (!(interaction.member instanceof GuildMember) || !(await isStaffOrAdmin(interaction.member))) {
@@ -49,4 +50,19 @@ export async function handlePaymentVerify(interaction: ButtonInteraction, orderI
     ],
     components: [row],
   });
+
+  // Cek ulang stok live (bukan cache) sekarang - paling akurat sesaat sebelum staff kirim manual.
+  // Dijalankan setelah reply supaya tidak menunda ack interaksi (batas 3 detik Discord).
+  if (order.productType === ProductType.ROBUX && order.robuxAmount) {
+    const liveStock = await refreshRobuxStock(interaction.client).catch(() => null);
+    if (liveStock !== null && order.robuxAmount > liveStock) {
+      await interaction.followUp({
+        embeds: [
+          errorEmbed(
+            `⚠️ Stok Robux saat ini hanya tersisa **${liveStock.toLocaleString('id-ID')}**, sedangkan order ini butuh **${order.robuxAmount.toLocaleString('id-ID')}**. Pastikan saldo cukup sebelum mengirim manual.`
+          ),
+        ],
+      });
+    }
+  }
 }

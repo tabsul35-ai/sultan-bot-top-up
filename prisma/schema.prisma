@@ -78,6 +78,12 @@ model BotSetting {
   logChannelId      String?
   orderCategoryId   String?
   updatedAt         DateTime @updatedAt
+
+  // Stok Robux live - diambil otomatis dari saldo akun Roblox penjual (lihat services/roblox)
+  robuxStockCache      Int?      // saldo Robux hasil polling terakhir yang berhasil
+  robuxStockUpdatedAt  DateTime? // kapan robuxStockCache terakhir berhasil diperbarui
+  robuxStockError      String?   // pesan error polling terakhir (mis. cookie kedaluwarsa), null kalau sehat
+  robloxCookieOverride String?   // .ROBLOSECURITY hasil rotasi otomatis Roblox, menggantikan ROBLOX_COOKIE di .env
 }
 
 model TransactionLog {
