@@ -17,6 +17,10 @@ export const CustomId = {
   MODAL_ROBUX_CUSTOM: 'modal_robux_custom',
   INPUT_ROBUX_AMOUNT: 'input_robux_amount',
 
+  // Modal admin: atur cookie Roblox untuk stok live (lihat /admin setrobloxcookie)
+  MODAL_ROBLOX_COOKIE: 'modal_roblox_cookie',
+  INPUT_ROBLOX_COOKIE: 'input_roblox_cookie',
+
   // Select menu: jumlah robux (dikirim setelah modal username disubmit)
   SELECT_ROBUX_AMOUNT: 'select_robux_amount',
 

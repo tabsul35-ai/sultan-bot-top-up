@@ -23,6 +23,7 @@ import { handlePanelRobuxSelect } from '../selectMenus/handlePanelRobuxSelect';
 // Modals
 import { handleRobloxUsernameSubmit } from '../modals/handleRobloxUsernameSubmit';
 import { handleRobuxCustomSubmit } from '../modals/handleRobuxCustomSubmit';
+import { handleRobloxCookieSubmit } from '../modals/handleRobloxCookieSubmit';
 
 export async function handleInteraction(interaction: Interaction) {
   try {
@@ -91,6 +92,9 @@ export async function handleInteraction(interaction: Interaction) {
       }
       if (base === CustomId.MODAL_ROBUX_CUSTOM) {
         return void (await handleRobuxCustomSubmit(interaction));
+      }
+      if (base === CustomId.MODAL_ROBLOX_COOKIE) {
+        return void (await handleRobloxCookieSubmit(interaction));
       }
       return;
     }

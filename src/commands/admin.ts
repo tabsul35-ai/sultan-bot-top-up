@@ -5,6 +5,7 @@ import { errorEmbed, successEmbed, baseEmbed } from '../utils/embeds';
 import { formatRupiah } from '../services/robux/robuxPricing';
 import { formatStockLine } from '../services/robux/robuxStock';
 import { refreshRobuxStock } from '../services/roblox/stockPoller';
+import { buildRobloxCookieModal } from '../modals/robloxCookieModal';
 
 /**
  * Upload lewat slash command = "ephemeral attachment" yang link-nya tidak bisa dipakai ulang
@@ -83,6 +84,11 @@ export const data = new SlashCommandBuilder()
   .addSubcommand((sub) => sub.setName('stats').setDescription('Lihat statistik transaksi'))
   .addSubcommand((sub) =>
     sub.setName('refreshstock').setDescription('Paksa ambil ulang stok Robux live dari akun Roblox sekarang')
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName('setrobloxcookie')
+      .setDescription('Atur/ganti cookie Roblox untuk stok live lewat form popup (tanpa perlu SSH)')
   );
 
 export async function execute(interaction: ChatInputCommandInteraction) {
@@ -92,6 +98,12 @@ export async function execute(interaction: ChatInputCommandInteraction) {
   }
 
   const sub = interaction.options.getSubcommand();
+
+  if (sub === 'setrobloxcookie') {
+    // showModal HARUS jadi respons pertama ke interaksi ini - tidak boleh didahului reply/defer apa pun.
+    await interaction.showModal(buildRobloxCookieModal());
+    return;
+  }
 
   if (sub === 'setprice') {
     const harga = interaction.options.getInteger('harga', true);
