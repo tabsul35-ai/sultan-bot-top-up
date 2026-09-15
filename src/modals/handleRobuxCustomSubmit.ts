@@ -9,6 +9,7 @@ import {
   isAllowedRobuxAmount,
 } from '../services/robux/robuxPricing';
 import { hasEnoughStock } from '../services/robux/robuxStock';
+import { checkRobloxUsername } from '../services/roblox/robloxUsers';
 import { getBotSetting } from '../database/prisma';
 import { buildOrderConfirmView } from '../utils/orderConfirm';
 import { errorEmbed } from '../utils/embeds';
@@ -17,7 +18,7 @@ const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,20}$/; // aturan username Roblox standar
 
 export async function handleRobuxCustomSubmit(interaction: ModalSubmitInteraction) {
   const rawAmount = interaction.fields.getTextInputValue(CustomId.INPUT_ROBUX_AMOUNT).trim().replace(/[.,\s]/g, '');
-  const username = interaction.fields.getTextInputValue(CustomId.INPUT_ROBLOX_USERNAME).trim();
+  const rawUsername = interaction.fields.getTextInputValue(CustomId.INPUT_ROBLOX_USERNAME).trim();
 
   const amount = Number(rawAmount);
   if (!/^\d+$/.test(rawAmount) || !isAllowedRobuxAmount(amount)) {
@@ -32,13 +33,29 @@ export async function handleRobuxCustomSubmit(interaction: ModalSubmitInteractio
     return;
   }
 
-  if (!USERNAME_REGEX.test(username)) {
+  if (!USERNAME_REGEX.test(rawUsername)) {
     await interaction.reply({
       embeds: [errorEmbed('Username Roblox tidak valid. Gunakan 3-20 karakter huruf, angka, atau underscore.')],
       ephemeral: true,
     });
     return;
   }
+
+  // Pastikan akunnya benar-benar ada di Roblox - typo di sini berarti Robux salah/gagal kirim
+  // nanti (pengiriman pakai username apa adanya). Kalau API Roblox lagi bermasalah, tidak diblokir.
+  const usernameCheck = await checkRobloxUsername(rawUsername);
+  if (usernameCheck.status === 'not_found') {
+    await interaction.reply({
+      embeds: [
+        errorEmbed(
+          `Username Roblox **${rawUsername}** tidak ditemukan di Roblox. Cek lagi ejaannya (buka roblox.com/users lalu cari nama itu) sebelum lanjut.`
+        ),
+      ],
+      ephemeral: true,
+    });
+    return;
+  }
+  const username = usernameCheck.status === 'found' ? usernameCheck.name : rawUsername;
 
   const activeOrder = await getActiveOrderForUser(interaction.user.id);
   if (activeOrder) {
