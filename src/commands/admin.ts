@@ -4,8 +4,8 @@ import { isAdmin } from '../utils/permissions';
 import { errorEmbed, successEmbed, baseEmbed } from '../utils/embeds';
 import { formatRupiah } from '../services/robux/robuxPricing';
 import { formatStockLine } from '../services/robux/robuxStock';
-import { refreshRobuxStock } from '../services/roblox/stockPoller';
-import { buildRobloxCookieModal } from '../modals/robloxCookieModal';
+import { refreshRobuxStock, MAX_ROBLOX_ACCOUNTS } from '../services/roblox/stockPoller';
+import { buildRobloxAccountModal } from '../modals/robloxAccountModal';
 
 /**
  * Upload lewat slash command = "ephemeral attachment" yang link-nya tidak bisa dipakai ulang
@@ -83,12 +83,21 @@ export const data = new SlashCommandBuilder()
   .addSubcommand((sub) => sub.setName('settings').setDescription('Lihat pengaturan saat ini'))
   .addSubcommand((sub) => sub.setName('stats').setDescription('Lihat statistik transaksi'))
   .addSubcommand((sub) =>
-    sub.setName('refreshstock').setDescription('Paksa ambil ulang stok Robux live dari akun Roblox sekarang')
+    sub.setName('refreshstock').setDescription('Paksa ambil ulang stok Robux live dari semua akun Roblox sekarang')
   )
   .addSubcommand((sub) =>
     sub
-      .setName('setrobloxcookie')
-      .setDescription('Atur/ganti cookie Roblox untuk stok live lewat form popup (tanpa perlu SSH)')
+      .setName('addrobloxaccount')
+      .setDescription(`Tambah akun Roblox untuk stok live lewat form popup (maks ${MAX_ROBLOX_ACCOUNTS} akun, tanpa perlu SSH)`)
+  )
+  .addSubcommand((sub) => sub.setName('listrobloxaccounts').setDescription('Lihat semua akun Roblox yang diatur untuk stok live'))
+  .addSubcommand((sub) =>
+    sub
+      .setName('removerobloxaccount')
+      .setDescription('Hapus satu akun Roblox dari stok live')
+      .addStringOption((opt) =>
+        opt.setName('nama').setDescription('Nama akun persis seperti di /admin listrobloxaccounts').setRequired(true)
+      )
   );
 
 export async function execute(interaction: ChatInputCommandInteraction) {
@@ -99,9 +108,9 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
   const sub = interaction.options.getSubcommand();
 
-  if (sub === 'setrobloxcookie') {
+  if (sub === 'addrobloxaccount') {
     // showModal HARUS jadi respons pertama ke interaksi ini - tidak boleh didahului reply/defer apa pun.
-    await interaction.showModal(buildRobloxCookieModal());
+    await interaction.showModal(buildRobloxAccountModal());
     return;
   }
 
@@ -263,24 +272,65 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ ephemeral: true });
 
     const stock = await refreshRobuxStock(interaction.client);
-    const setting = await getBotSetting();
 
-    if (stock === null && !setting.robuxStockCache) {
+    if (stock === null) {
       await interaction.editReply({
-        embeds: [
-          errorEmbed(
-            setting.robuxStockError
-              ? `Gagal ambil stok: ${setting.robuxStockError}`
-              : 'Stok live belum aktif - isi `ROBLOX_COOKIE` di `.env` VPS dulu, lalu restart bot.'
-          ),
-        ],
+        embeds: [errorEmbed('Belum ada akun Roblox yang diatur. Tambahkan lewat `/admin addrobloxaccount`.')],
       });
       return;
     }
 
+    const setting = await getBotSetting();
     await interaction.editReply({
       embeds: [successEmbed(`Stok Robux live diperbarui: **${formatStockLine(setting)}**.`)],
     });
+    return;
+  }
+
+  if (sub === 'listrobloxaccounts') {
+    const accounts = await prisma.robloxAccount.findMany({ orderBy: { createdAt: 'asc' } });
+
+    if (accounts.length === 0) {
+      await interaction.reply({
+        embeds: [errorEmbed('Belum ada akun Roblox yang diatur. Tambahkan lewat `/admin addrobloxaccount`.')],
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const embed = baseEmbed()
+      .setTitle('🎮 Akun Roblox (Stok Live)')
+      .setDescription(`${accounts.length}/${MAX_ROBLOX_ACCOUNTS} akun terdaftar.`)
+      .addFields(
+        accounts.map((account) => ({
+          name: `${account.active ? '🟢' : '⚪'} ${account.label}`,
+          value: account.stockError
+            ? `⚠️ ${account.stockError}`
+            : `${(account.stockCache ?? 0).toLocaleString('id-ID')} Robux${
+                account.stockUpdatedAt ? ` (update ${account.stockUpdatedAt.toLocaleString('id-ID')})` : ' (belum pernah dipoll)'
+              }`,
+        }))
+      );
+
+    await interaction.reply({ embeds: [embed], ephemeral: true });
+    return;
+  }
+
+  if (sub === 'removerobloxaccount') {
+    const nama = interaction.options.getString('nama', true);
+
+    await interaction.deferReply({ ephemeral: true });
+
+    const deleted = await prisma.robloxAccount.deleteMany({ where: { label: { equals: nama, mode: 'insensitive' } } });
+    if (deleted.count === 0) {
+      await interaction.editReply({
+        embeds: [errorEmbed(`Tidak ada akun bernama "${nama}". Cek nama persis lewat \`/admin listrobloxaccounts\`.`)],
+      });
+      return;
+    }
+
+    await refreshRobuxStock(interaction.client);
+    await interaction.editReply({ embeds: [successEmbed(`Akun "${nama}" dihapus dari stok live.`)] });
     return;
   }
 

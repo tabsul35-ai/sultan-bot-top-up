@@ -43,43 +43,45 @@ Harus ada `✅ Terhubung ke database.` dan `👑 ... online` tanpa error merah.
 
 ## Stok Robux otomatis (opsional)
 
-Bot bisa membaca saldo Robux akun Roblox penjual secara berkala (tiap 5 menit) dan
-memakainya sebagai "stok" — order dengan jumlah melebihi stok otomatis diblokir saat user
-memilih, dan staff dapat peringatan kalau stok kurang saat verifikasi pembayaran.
+Bot bisa membaca saldo Robux dari **sampai 5 akun Roblox** penjual secara berkala (tiap 5
+menit) dan menjumlahkannya jadi "stok" — order dengan jumlah melebihi total stok otomatis
+diblokir saat user memilih, dan staff dapat peringatan kalau stok kurang saat verifikasi
+pembayaran. Semua diatur lewat command Discord — **tidak perlu edit `.env` atau SSH sama
+sekali** untuk fitur ini.
 
-### Aktifkan
+### Tambah akun
 
 1. Login ke akun Roblox yang dipakai jualan (**sarankan akun terpisah, bukan akun utama**)
    lewat browser di PC.
 2. Buka DevTools (`F12`) → tab **Application** (Chrome) / **Storage** (Firefox) → **Cookies**
    → `https://www.roblox.com` → cari baris `.ROBLOSECURITY` → copy value-nya (panjang,
    diawali `_|WARNING:-DO-NOT-SHARE-THIS...`).
-3. **Di VPS**, tambahkan baris ini ke `.env`:
-   ```bash
-   nano ~/sultan-bot-top-up/.env
-   ```
-   Tambahkan:
-   ```
-   ROBLOX_COOKIE=isi_cookie_disini
-   ```
-4. Restart bot: `pm2 restart sultan-bot --update-env`
-5. Tes: `/admin refreshstock` di Discord. Kalau berhasil, `/admin settings` menampilkan
-   field **Stok Robux (live)**.
+3. Di Discord, jalankan `/admin addrobloxaccount` → muncul **form popup**, isi nama akun
+   (bebas, mis. "Akun 1") dan paste cookie-nya → Submit.
+4. Bot langsung coba ambil saldo dan balas hasilnya (ephemeral, hanya Anda yang lihat).
+5. Ulangi untuk akun lain (maks 5). Total stok = jumlah saldo semua akun aktif.
+
+Kelola akun yang sudah ada:
+- `/admin listrobloxaccounts` — lihat semua akun, saldo, dan status masing-masing.
+- `/admin removerobloxaccount nama:<nama akun>` — hapus satu akun (nama harus persis sama
+  seperti di `listrobloxaccounts`).
+- `/admin refreshstock` — paksa polling ulang manual (di luar jadwal 5 menit).
 
 > **Cookie ini setara password penuh akun Roblox itu** (bisa transfer Robux, ganti password,
-> dll). Perlakukan seperti `DISCORD_TOKEN` atau `DATABASE_URL` — jangan pernah share, jangan
-> commit ke git, jangan tempel di channel Discord manapun (termasuk log channel bot).
+> dll). Nilainya tidak pernah tampil sebagai teks di channel (form popup Discord bersifat
+> privat), tapi tetap jangan pernah share ke siapa pun di luar bot ini.
 
-Kalau kosongkan `ROBLOX_COOKIE`, fitur ini nonaktif diam-diam — bot jalan normal seperti
-sebelumnya (transaksi tetap manual, tanpa pengecekan stok).
+Kalau belum ada akun yang ditambahkan, fitur ini nonaktif diam-diam — bot jalan normal
+seperti sebelumnya (transaksi tetap manual, tanpa pengecekan stok).
 
 ### Troubleshooting stok
 
 | Gejala | Solusi |
 |---|---|
-| `/admin refreshstock` → "cookie kedaluwarsa/tidak valid" | Cookie salah copy, atau Roblox memaksa logout (ganti IP/device baru, ganti password). Ambil ulang cookie dari langkah 1-2, update `.env`, restart. |
-| Stok tidak berubah walau sudah restock manual di Roblox | Tunggu maks 5 menit (interval polling), atau jalankan `/admin refreshstock`. |
-| Warning "Gagal ambil stok Robux" di log channel | Sama seperti di atas — cookie perlu diperbarui. Transaksi tetap jalan normal selama ini terjadi. |
+| `/admin listrobloxaccounts` → satu akun tertulis "⚠️ cookie kedaluwarsa/tidak valid" | Cookie akun itu perlu diganti: `/admin removerobloxaccount nama:<nama>` lalu `/admin addrobloxaccount` lagi dengan cookie baru (ambil ulang dari langkah 1-2). Akun lain tetap dihitung normal. |
+| Total stok tidak berubah walau sudah restock manual di Roblox | Tunggu maks 5 menit (interval polling), atau jalankan `/admin refreshstock`. |
+| Warning "Gagal ambil saldo akun Roblox" di log channel | Sama seperti di atas — cookie akun itu perlu diperbarui. Transaksi tetap jalan normal selama ini terjadi. |
+| `/admin addrobloxaccount` → "Sudah ada 5 akun aktif" | Batas maksimal 5 akun. Hapus salah satu dulu (`/admin removerobloxaccount`) sebelum menambah yang baru. |
 
 ---
 

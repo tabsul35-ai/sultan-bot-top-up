@@ -79,11 +79,29 @@ model BotSetting {
   orderCategoryId   String?
   updatedAt         DateTime @updatedAt
 
-  // Stok Robux live - diambil otomatis dari saldo akun Roblox penjual (lihat services/roblox)
-  robuxStockCache      Int?      // saldo Robux hasil polling terakhir yang berhasil
+  // Stok Robux live - ringkasan gabungan dari semua RobloxAccount aktif (lihat services/roblox).
+  // Field robloxCookieOverride sudah tidak dipakai (digantikan tabel RobloxAccount), dibiarkan
+  // ada di database lama tapi tidak diisi/dibaca lagi oleh kode baru.
+  robuxStockCache      Int?      // total saldo dari semua akun aktif, hasil polling terakhir
   robuxStockUpdatedAt  DateTime? // kapan robuxStockCache terakhir berhasil diperbarui
-  robuxStockError      String?   // pesan error polling terakhir (mis. cookie kedaluwarsa), null kalau sehat
-  robloxCookieOverride String?   // .ROBLOSECURITY hasil rotasi otomatis Roblox, menggantikan ROBLOX_COOKIE di .env
+  robuxStockError      String?   // ringkasan akun yang gagal dipoll (mis. cookie kedaluwarsa), null kalau semua sehat
+  robloxCookieOverride String?   // @deprecated - sudah tidak dipakai, lihat RobloxAccount
+}
+
+// Satu akun Roblox penjual yang saldonya dijumlahkan jadi "stok live" (maks 5 akun aktif,
+// lihat MAX_ROBLOX_ACCOUNTS di services/roblox/stockPoller.ts). Diatur lewat /admin
+// addrobloxaccount / listrobloxaccounts / removerobloxaccount - tidak perlu edit .env.
+model RobloxAccount {
+  id             String    @id @default(cuid())
+  label          String    // nama bebas dari admin untuk membedakan akun, mis. "Akun 1"
+  cookie         String    // .ROBLOSECURITY - SANGAT SENSITIF, setara password penuh akun ini
+  active         Boolean   @default(true)
+  stockCache     Int?      // saldo Robux hasil polling terakhir yang berhasil untuk akun ini
+  stockUpdatedAt DateTime?
+  stockError     String?   // pesan error polling terakhir untuk akun ini, null kalau sehat
+  createdAt      DateTime  @default(now())
+
+  @@index([active])
 }
 
 model TransactionLog {
