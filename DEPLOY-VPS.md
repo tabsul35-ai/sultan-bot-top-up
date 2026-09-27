@@ -17,6 +17,27 @@ Migrasi dari Neon dilakukan dengan [scripts/migrate-db-local.sh](scripts/migrate
 
 ---
 
+## Multi-server (bot dipasang di lebih dari 1 server Discord)
+
+Bot ini bisa dipasang di beberapa server Discord sekaligus - tiap server jadi **toko
+independen** (harga, metode pembayaran, role staff/admin, kategori ticket, stok Robux
+sendiri-sendiri, diatur lewat `/admin` seperti biasa **di server itu**).
+
+Supaya slash command muncul di **semua** server (bukan cuma satu):
+
+1. Buka `.env` di VPS, cek baris `DISCORD_GUILD_ID`.
+2. Kalau terisi (ID server), **kosongkan**: `DISCORD_GUILD_ID=`
+3. Restart: `pm2 restart sultan-bot --update-env`
+4. Command butuh **sampai ~1 jam** untuk muncul di semua server (deploy global, beda dengan
+   deploy per-server yang instan). Setelah itu, undang bot ke server baru lewat Discord
+   Developer Portal (OAuth2 > URL Generator > centang `bot` + `applications.commands`) →
+   buka link undangan di server baru.
+5. Di server baru, jalankan `/admin setprice`, `/admin setpayment`, `/admin setroles`,
+   `/admin setchannel`, `/panel` seperti setup awal - semua pengaturan server baru ini
+   terpisah total dari server lama.
+
+---
+
 ## Update bot ke versi terbaru (tugas paling sering)
 
 **Di PC:**
