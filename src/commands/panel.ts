@@ -39,7 +39,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     bersihkan,
   });
 
-  const setting = await getBotSetting();
+  const setting = await getBotSetting(interaction.guildId!);
   await channel.send(buildRobuxPanel(setting.robuxPricePerUnit, setting));
 
   await interaction.editReply({

@@ -57,7 +57,7 @@ export async function handleRobuxCustomSubmit(interaction: ModalSubmitInteractio
   }
   const username = usernameCheck.status === 'found' ? usernameCheck.name : rawUsername;
 
-  const activeOrder = await getActiveOrderForUser(interaction.user.id);
+  const activeOrder = await getActiveOrderForUser(interaction.user.id, interaction.guildId!);
   if (activeOrder) {
     await interaction.reply({
       embeds: [
@@ -70,7 +70,7 @@ export async function handleRobuxCustomSubmit(interaction: ModalSubmitInteractio
     return;
   }
 
-  const setting = await getBotSetting();
+  const setting = await getBotSetting(interaction.guildId!);
 
   if (!hasEnoughStock(amount, setting)) {
     await interaction.reply({
@@ -84,7 +84,7 @@ export async function handleRobuxCustomSubmit(interaction: ModalSubmitInteractio
     return;
   }
 
-  setPendingRobuxUsername(interaction.user.id, username);
+  setPendingRobuxUsername(interaction.guildId!, interaction.user.id, username);
 
   const price = calculateRobuxPrice(amount, setting.robuxPricePerUnit);
 

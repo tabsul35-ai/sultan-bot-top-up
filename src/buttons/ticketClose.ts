@@ -21,6 +21,7 @@ export async function handleTicketClose(interaction: ButtonInteraction, orderId:
   await interaction.reply({ embeds: [successEmbed('Ticket ini akan ditutup dalam 5 detik...')] });
 
   await logTransaction(interaction.client, {
+    guildId: order?.guildId ?? interaction.guildId!,
     orderId: order?.id,
     type: 'TICKET_CLOSED',
     title: '🔒 TICKET CLOSED',

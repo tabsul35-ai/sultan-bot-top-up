@@ -27,6 +27,7 @@ export async function handlePaymentVerify(interaction: ButtonInteraction, orderI
   await verifyPayment(order.id, interaction.user.id);
 
   await logTransaction(interaction.client, {
+    guildId: order.guildId,
     orderId: order.id,
     type: 'PAYMENT_VERIFIED',
     title: '💳 PAYMENT VERIFIED',
@@ -54,7 +55,7 @@ export async function handlePaymentVerify(interaction: ButtonInteraction, orderI
   // Cek ulang stok live (bukan cache) sekarang - paling akurat sesaat sebelum staff kirim manual.
   // Dijalankan setelah reply supaya tidak menunda ack interaksi (batas 3 detik Discord).
   if (order.productType === ProductType.ROBUX && order.robuxAmount) {
-    const liveStock = await refreshRobuxStock(interaction.client).catch(() => null);
+    const liveStock = await refreshRobuxStock(order.guildId, interaction.client).catch(() => null);
     if (liveStock !== null && order.robuxAmount > liveStock) {
       await interaction.followUp({
         embeds: [

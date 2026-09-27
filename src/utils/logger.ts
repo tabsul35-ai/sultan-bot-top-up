@@ -4,10 +4,13 @@ import { BRAND } from '../config/config';
 
 /**
  * Catat transaksi ke database (TransactionLog) dan kirim embed ke log channel jika sudah dikonfigurasi.
+ * `guildId` menentukan server (toko) mana yang log channel-nya dipakai - tiap server punya
+ * log channel sendiri-sendiri.
  */
 export async function logTransaction(
   client: Client,
   params: {
+    guildId: string;
     orderId?: string;
     type: string;
     title: string;
@@ -19,6 +22,7 @@ export async function logTransaction(
   // Simpan ke database dulu - ini yang paling penting, jangan sampai gagal karena masalah Discord API
   await prisma.transactionLog.create({
     data: {
+      guildId: params.guildId,
       orderId: params.orderId,
       type: params.type,
       message: params.message,
@@ -27,7 +31,7 @@ export async function logTransaction(
   });
 
   try {
-    const setting = await getBotSetting();
+    const setting = await getBotSetting(params.guildId);
     if (!setting.logChannelId) return;
 
     const channel = await client.channels.fetch(setting.logChannelId).catch(() => null);

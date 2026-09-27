@@ -12,9 +12,9 @@ import { buildRobloxAccountModal } from '../modals/robloxAccountModal';
  * di pesan/embed lain. Kirim ulang gambar sebagai pesan biasa (di log channel, atau channel ini)
  * lalu kembalikan URL attachment yang stabil. Pesan itu tidak boleh dihapus.
  */
-async function rehostImage(interaction: ChatInputCommandInteraction, sourceUrl: string): Promise<string | null> {
+async function rehostImage(interaction: ChatInputCommandInteraction, guildId: string, sourceUrl: string): Promise<string | null> {
   try {
-    const setting = await getBotSetting();
+    const setting = await getBotSetting(guildId);
     let target: TextChannel | null = null;
 
     if (setting.logChannelId) {
@@ -106,6 +106,13 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     return;
   }
 
+  // Semua pengaturan di-scope per server (toko) - command ini tidak berlaku di DM.
+  const guildId = interaction.guildId;
+  if (!guildId) {
+    await interaction.reply({ embeds: [errorEmbed('Command ini hanya bisa digunakan di dalam server.')], ephemeral: true });
+    return;
+  }
+
   const sub = interaction.options.getSubcommand();
 
   if (sub === 'addrobloxaccount') {
@@ -117,9 +124,9 @@ export async function execute(interaction: ChatInputCommandInteraction) {
   if (sub === 'setprice') {
     const harga = interaction.options.getInteger('harga', true);
     await prisma.botSetting.upsert({
-      where: { id: 1 },
+      where: { guildId },
       update: { robuxPricePerUnit: harga },
-      create: { id: 1, robuxPricePerUnit: harga },
+      create: { guildId, robuxPricePerUnit: harga },
     });
     await interaction.reply({
       embeds: [
@@ -167,7 +174,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
           await interaction.editReply({ embeds: [errorEmbed('File `gambar_qris` harus berupa gambar (PNG/JPG).')] });
           return;
         }
-        const hostedUrl = await rehostImage(interaction, gambarQris.url);
+        const hostedUrl = await rehostImage(interaction, guildId, gambarQris.url);
         if (!hostedUrl) {
           await interaction.editReply({
             embeds: [
@@ -193,9 +200,9 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     }
 
     await prisma.paymentSetting.upsert({
-      where: { id: 1 },
+      where: { guildId },
       update: data,
-      create: { id: 1, ...data },
+      create: { guildId, ...data },
     });
 
     await interaction.editReply({
@@ -210,13 +217,13 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     const verifiedRole = interaction.options.getRole('verified');
 
     await prisma.botSetting.upsert({
-      where: { id: 1 },
+      where: { guildId },
       update: {
         ...(staffRole ? { staffRoleId: staffRole.id } : {}),
         ...(adminRole ? { adminRoleId: adminRole.id } : {}),
         ...(verifiedRole ? { verifiedRoleId: verifiedRole.id } : {}),
       },
-      create: { id: 1, staffRoleId: staffRole?.id, adminRoleId: adminRole?.id, verifiedRoleId: verifiedRole?.id },
+      create: { guildId, staffRoleId: staffRole?.id, adminRoleId: adminRole?.id, verifiedRoleId: verifiedRole?.id },
     });
 
     await interaction.reply({ embeds: [successEmbed('Role staff/admin/verifikasi berhasil diperbarui.')], ephemeral: true });
@@ -228,12 +235,12 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     const kategori = interaction.options.getChannel('kategori');
 
     await prisma.botSetting.upsert({
-      where: { id: 1 },
+      where: { guildId },
       update: {
         ...(log ? { logChannelId: log.id } : {}),
         ...(kategori ? { orderCategoryId: kategori.id } : {}),
       },
-      create: { id: 1, logChannelId: log?.id, orderCategoryId: kategori?.id },
+      create: { guildId, logChannelId: log?.id, orderCategoryId: kategori?.id },
     });
 
     await interaction.reply({ embeds: [successEmbed('Channel log/kategori berhasil diperbarui.')], ephemeral: true });
@@ -241,8 +248,8 @@ export async function execute(interaction: ChatInputCommandInteraction) {
   }
 
   if (sub === 'settings') {
-    const botSetting = await getBotSetting();
-    const paymentSetting = await getPaymentSetting();
+    const botSetting = await getBotSetting(guildId);
+    const paymentSetting = await getPaymentSetting(guildId);
 
     const embed = baseEmbed()
       .setTitle('⚙️ Pengaturan Saat Ini')
@@ -271,7 +278,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
   if (sub === 'refreshstock') {
     await interaction.deferReply({ ephemeral: true });
 
-    const stock = await refreshRobuxStock(interaction.client);
+    const stock = await refreshRobuxStock(guildId, interaction.client);
 
     if (stock === null) {
       await interaction.editReply({
@@ -280,7 +287,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       return;
     }
 
-    const setting = await getBotSetting();
+    const setting = await getBotSetting(guildId);
     await interaction.editReply({
       embeds: [successEmbed(`Stok Robux live diperbarui: **${formatStockLine(setting)}**.`)],
     });
@@ -288,7 +295,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
   }
 
   if (sub === 'listrobloxaccounts') {
-    const accounts = await prisma.robloxAccount.findMany({ orderBy: { createdAt: 'asc' } });
+    const accounts = await prisma.robloxAccount.findMany({ where: { guildId }, orderBy: { createdAt: 'asc' } });
 
     if (accounts.length === 0) {
       await interaction.reply({
@@ -300,7 +307,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
     const embed = baseEmbed()
       .setTitle('🎮 Akun Roblox (Stok Live)')
-      .setDescription(`${accounts.length}/${MAX_ROBLOX_ACCOUNTS} akun terdaftar.`)
+      .setDescription(`${accounts.length}/${MAX_ROBLOX_ACCOUNTS} akun terdaftar untuk toko ini.`)
       .addFields(
         accounts.map((account) => ({
           name: `${account.active ? '🟢' : '⚪'} ${account.label}`,
@@ -321,25 +328,27 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
     await interaction.deferReply({ ephemeral: true });
 
-    const deleted = await prisma.robloxAccount.deleteMany({ where: { label: { equals: nama, mode: 'insensitive' } } });
+    const deleted = await prisma.robloxAccount.deleteMany({
+      where: { guildId, label: { equals: nama, mode: 'insensitive' } },
+    });
     if (deleted.count === 0) {
       await interaction.editReply({
-        embeds: [errorEmbed(`Tidak ada akun bernama "${nama}". Cek nama persis lewat \`/admin listrobloxaccounts\`.`)],
+        embeds: [errorEmbed(`Tidak ada akun bernama "${nama}" di toko ini. Cek nama persis lewat \`/admin listrobloxaccounts\`.`)],
       });
       return;
     }
 
-    await refreshRobuxStock(interaction.client);
+    await refreshRobuxStock(guildId, interaction.client);
     await interaction.editReply({ embeds: [successEmbed(`Akun "${nama}" dihapus dari stok live.`)] });
     return;
   }
 
   if (sub === 'stats') {
     const [totalOrders, completedOrders, revenueAgg, robuxAgg] = await Promise.all([
-      prisma.order.count(),
-      prisma.order.count({ where: { status: 'COMPLETED' } }),
-      prisma.order.aggregate({ where: { status: 'COMPLETED' }, _sum: { price: true } }),
-      prisma.order.aggregate({ where: { status: 'COMPLETED' }, _sum: { robuxAmount: true } }),
+      prisma.order.count({ where: { guildId } }),
+      prisma.order.count({ where: { guildId, status: 'COMPLETED' } }),
+      prisma.order.aggregate({ where: { guildId, status: 'COMPLETED' }, _sum: { price: true } }),
+      prisma.order.aggregate({ where: { guildId, status: 'COMPLETED' }, _sum: { robuxAmount: true } }),
     ]);
 
     const embed = baseEmbed()

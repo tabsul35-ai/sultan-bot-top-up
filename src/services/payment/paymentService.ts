@@ -11,7 +11,7 @@ import { formatRupiah } from '../robux/robuxPricing';
  * Metode yang belum diisi admin tidak akan ditampilkan.
  */
 export async function buildPaymentEmbed(order: Order): Promise<{ embed: EmbedBuilder; components: ActionRowBuilder<ButtonBuilder>[] }> {
-  const setting = await getPaymentSetting();
+  const setting = await getPaymentSetting(order.guildId);
 
   const embed = baseEmbed()
     .setTitle('💳 PEMBAYARAN')

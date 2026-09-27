@@ -22,7 +22,7 @@ import { CustomId, buildCustomId } from '../../types/customIds';
  * - Staff role & Admin role (jika dikonfigurasi): bisa lihat & kirim pesan
  */
 export async function createRobuxTicket(guild: Guild, order: Order, robloxUsername: string) {
-  const setting = await getBotSetting();
+  const setting = await getBotSetting(guild.id);
 
   const overwrites: OverwriteResolvable[] = [
     {

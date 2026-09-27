@@ -12,6 +12,12 @@ export async function handleRobloxAccountSubmit(interaction: ModalSubmitInteract
     return;
   }
 
+  const guildId = interaction.guildId;
+  if (!guildId) {
+    await interaction.reply({ embeds: [errorEmbed('Command ini hanya bisa digunakan di dalam server.')], ephemeral: true });
+    return;
+  }
+
   await interaction.deferReply({ ephemeral: true });
 
   const label = interaction.fields.getTextInputValue(CustomId.INPUT_ROBLOX_ACCOUNT_LABEL).trim();
@@ -24,7 +30,7 @@ export async function handleRobloxAccountSubmit(interaction: ModalSubmitInteract
     return;
   }
 
-  const activeCount = await prisma.robloxAccount.count({ where: { active: true } });
+  const activeCount = await prisma.robloxAccount.count({ where: { guildId, active: true } });
   if (activeCount >= MAX_ROBLOX_ACCOUNTS) {
     await interaction.editReply({
       embeds: [
@@ -36,15 +42,15 @@ export async function handleRobloxAccountSubmit(interaction: ModalSubmitInteract
     return;
   }
 
-  const existing = await prisma.robloxAccount.findFirst({ where: { label: { equals: label, mode: 'insensitive' } } });
+  const existing = await prisma.robloxAccount.findFirst({ where: { guildId, label: { equals: label, mode: 'insensitive' } } });
   if (existing) {
     await interaction.editReply({ embeds: [errorEmbed(`Nama akun "${label}" sudah dipakai. Pakai nama lain yang belum ada.`)] });
     return;
   }
 
-  const account = await prisma.robloxAccount.create({ data: { label, cookie } });
+  const account = await prisma.robloxAccount.create({ data: { guildId, label, cookie } });
 
-  const total = await refreshRobuxStock(interaction.client);
+  const total = await refreshRobuxStock(guildId, interaction.client);
   const refreshed = await prisma.robloxAccount.findUnique({ where: { id: account.id } });
 
   if (refreshed?.stockError) {

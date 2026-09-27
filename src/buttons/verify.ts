@@ -8,7 +8,7 @@ export async function handleVerify(interaction: ButtonInteraction) {
     return;
   }
 
-  const setting = await getBotSetting();
+  const setting = await getBotSetting(interaction.guild.id);
   if (!setting.verifiedRoleId) {
     await interaction.reply({
       embeds: [errorEmbed('Role verifikasi belum diatur admin. Silakan hubungi staff.')],

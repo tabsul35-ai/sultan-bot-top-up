@@ -25,6 +25,7 @@ export async function handlePaymentReject(interaction: ButtonInteraction, orderI
   await rejectPayment(order.id, interaction.user.id, 'Bukti pembayaran tidak valid/tidak sesuai.');
 
   await logTransaction(interaction.client, {
+    guildId: order.guildId,
     orderId: order.id,
     type: 'PAYMENT_REJECTED',
     title: '❌ PAYMENT REJECTED',

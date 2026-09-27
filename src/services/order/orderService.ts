@@ -6,6 +6,7 @@ import { generateOrderCode } from '../../utils/ids';
  * Buat order baru dengan orderCode unik (retry jika collision, walau sangat jarang terjadi).
  */
 export async function createRobuxOrder(params: {
+  guildId: string;
   discordId: string;
   robloxUsername: string;
   robuxAmount: number;
@@ -24,6 +25,7 @@ export async function createRobuxOrder(params: {
     try {
       const order = await prisma.order.create({
         data: {
+          guildId: params.guildId,
           orderCode,
           discordId: params.discordId,
           productType: ProductType.ROBUX,
@@ -109,9 +111,10 @@ export async function cancelOrder(orderId: string) {
   });
 }
 
-export async function getUserOrderHistory(discordId: string, limit = 10) {
+/** Riwayat transaksi user di SATU server (toko) tertentu - order dari server lain tidak ikut. */
+export async function getUserOrderHistory(discordId: string, guildId: string, limit = 10) {
   return prisma.order.findMany({
-    where: { discordId },
+    where: { discordId, guildId },
     orderBy: { createdAt: 'desc' },
     take: limit,
   });
@@ -127,12 +130,14 @@ export function isOrderActive(status: OrderStatus): boolean {
 }
 
 /**
- * Cek apakah user sudah punya order aktif (anti-spam ticket).
+ * Cek apakah user sudah punya order aktif (anti-spam ticket) DI SERVER INI. Karena tiap
+ * server adalah toko independen, user boleh punya 1 order aktif di tiap server sekaligus.
  */
-export async function getActiveOrderForUser(discordId: string) {
+export async function getActiveOrderForUser(discordId: string, guildId: string) {
   return prisma.order.findFirst({
     where: {
       discordId,
+      guildId,
       status: { in: [OrderStatus.PENDING, OrderStatus.WAITING_PAYMENT, OrderStatus.PAID, OrderStatus.PROCESSING] },
     },
   });

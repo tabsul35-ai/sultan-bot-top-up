@@ -11,7 +11,7 @@ export type LockResult = { changed: number; skipped: number; failed: number; not
  * Channel yang permission-nya masih sinkron ke kategori dilewati - cukup kategorinya yang diatur.
  */
 export async function lockGuild(guild: Guild): Promise<LockResult> {
-  const setting = await getBotSetting();
+  const setting = await getBotSetting(guild.id);
   const me = guild.members.me;
 
   if (!me || !me.permissions.has([PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageRoles])) {

@@ -7,7 +7,7 @@ import { buildOrderConfirmView } from '../utils/orderConfirm';
 import { errorEmbed } from '../utils/embeds';
 
 export async function handleRobuxAmountSelect(interaction: StringSelectMenuInteraction) {
-  const username = getPendingRobuxUsername(interaction.user.id);
+  const username = getPendingRobuxUsername(interaction.guildId!, interaction.user.id);
   if (!username) {
     await interaction.update({
       embeds: [errorEmbed('Sesi Anda sudah kedaluwarsa. Silakan mulai lagi dengan `/buy`.')],
@@ -22,7 +22,7 @@ export async function handleRobuxAmountSelect(interaction: StringSelectMenuInter
     return;
   }
 
-  const setting = await getBotSetting();
+  const setting = await getBotSetting(interaction.guildId!);
 
   if (!hasEnoughStock(amount, setting)) {
     await interaction.update({

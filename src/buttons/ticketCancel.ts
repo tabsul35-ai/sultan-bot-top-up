@@ -31,6 +31,7 @@ export async function handleTicketCancel(interaction: ButtonInteraction, orderId
   await cancelOrder(order.id);
 
   await logTransaction(interaction.client, {
+    guildId: order.guildId,
     orderId: order.id,
     type: 'ORDER_CANCELLED',
     title: '🛑 ORDER CANCELLED',

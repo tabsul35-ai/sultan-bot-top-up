@@ -25,6 +25,7 @@ export async function handleOrderMarkCompleted(interaction: ButtonInteraction, o
   await markCompleted(order.id);
 
   await logTransaction(interaction.client, {
+    guildId: order.guildId,
     orderId: order.id,
     type: 'ORDER_COMPLETED',
     title: '✅ ORDER COMPLETED',

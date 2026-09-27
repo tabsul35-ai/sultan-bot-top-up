@@ -26,25 +26,24 @@ prisma.$use(async (params, next) => {
 });
 
 /**
- * Ambil BotSetting (harga robux, role staff/admin, dsb).
- * Membuat baris default jika belum ada.
+ * Ambil BotSetting satu server (harga robux, role staff/admin, stok, dsb) - tiap server
+ * Discord (guildId) toko independen sendiri. Membuat baris default jika belum ada.
  */
-export async function getBotSetting() {
-  let setting = await prisma.botSetting.findUnique({ where: { id: 1 } });
+export async function getBotSetting(guildId: string) {
+  let setting = await prisma.botSetting.findUnique({ where: { guildId } });
   if (!setting) {
-    setting = await prisma.botSetting.create({ data: { id: 1 } });
+    setting = await prisma.botSetting.create({ data: { guildId } });
   }
   return setting;
 }
 
 /**
- * Ambil PaymentSetting (QRIS/DANA/OVO/GoPay/Bank).
- * Membuat baris default jika belum ada.
+ * Ambil PaymentSetting satu server (QRIS/DANA/OVO/GoPay/Bank). Membuat baris default jika belum ada.
  */
-export async function getPaymentSetting() {
-  let setting = await prisma.paymentSetting.findUnique({ where: { id: 1 } });
+export async function getPaymentSetting(guildId: string) {
+  let setting = await prisma.paymentSetting.findUnique({ where: { guildId } });
   if (!setting) {
-    setting = await prisma.paymentSetting.create({ data: { id: 1 } });
+    setting = await prisma.paymentSetting.create({ data: { guildId } });
   }
   return setting;
 }

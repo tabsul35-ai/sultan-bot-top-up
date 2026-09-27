@@ -29,8 +29,12 @@ model User {
   createdAt       DateTime @default(now())
 }
 
+// Semua data toko (order, setting, stok) di-scope per Discord server (guildId) - bot ini
+// bisa dipasang di beberapa server sekaligus, masing-masing jadi toko yang sepenuhnya
+// independen (harga, pembayaran, staff, stok Robux sendiri-sendiri).
 model Order {
   id               String        @id @default(cuid())
+  guildId          String        // server Discord tempat order ini dibuat
   orderCode        String        @unique // format ST-XXXXXX
   discordId        String
   productType      ProductType   @default(ROBUX)
@@ -50,11 +54,13 @@ model Order {
 
   @@index([discordId])
   @@index([status])
+  @@index([guildId])
+  @@index([guildId, discordId])
 }
 
-// Singleton (id selalu 1) - info pembayaran manual yang ditampilkan lewat /pay
+// Satu baris per server Discord (guildId) - info pembayaran manual toko itu, ditampilkan lewat /pay
 model PaymentSetting {
-  id              Int      @id @default(1)
+  guildId         String   @id
   qris            String?  // caption/nomor QRIS, atau catatan "lihat lampiran"
   qrisImageUrl    String?  // link gambar QRIS (opsional)
   dana            String?
@@ -67,9 +73,9 @@ model PaymentSetting {
   updatedAt       DateTime @updatedAt
 }
 
-// Singleton (id selalu 1) - pengaturan umum bot
+// Satu baris per server Discord (guildId) - pengaturan toko itu
 model BotSetting {
-  id                Int      @id @default(1)
+  guildId           String   @id
   robuxPricePerUnit Int      @default(160) // rupiah per 1 Robux
   staffRoleId       String?
   adminRoleId       String?
@@ -79,20 +85,22 @@ model BotSetting {
   orderCategoryId   String?
   updatedAt         DateTime @updatedAt
 
-  // Stok Robux live - ringkasan gabungan dari semua RobloxAccount aktif (lihat services/roblox).
-  // Field robloxCookieOverride sudah tidak dipakai (digantikan tabel RobloxAccount), dibiarkan
-  // ada di database lama tapi tidak diisi/dibaca lagi oleh kode baru.
-  robuxStockCache      Int?      // total saldo dari semua akun aktif, hasil polling terakhir
+  // Stok Robux live toko ini - ringkasan gabungan dari semua RobloxAccount aktif milik guildId
+  // ini (lihat services/roblox). Field robloxCookieOverride sudah tidak dipakai (digantikan
+  // tabel RobloxAccount), dibiarkan ada di database lama tapi tidak diisi/dibaca kode baru.
+  robuxStockCache      Int?      // total saldo dari semua akun aktif toko ini, hasil polling terakhir
   robuxStockUpdatedAt  DateTime? // kapan robuxStockCache terakhir berhasil diperbarui
   robuxStockError      String?   // ringkasan akun yang gagal dipoll (mis. cookie kedaluwarsa), null kalau semua sehat
   robloxCookieOverride String?   // @deprecated - sudah tidak dipakai, lihat RobloxAccount
 }
 
-// Satu akun Roblox penjual yang saldonya dijumlahkan jadi "stok live" (maks 5 akun aktif,
-// lihat MAX_ROBLOX_ACCOUNTS di services/roblox/stockPoller.ts). Diatur lewat /admin
-// addrobloxaccount / listrobloxaccounts / removerobloxaccount - tidak perlu edit .env.
+// Satu akun Roblox penjual milik satu toko (guildId), saldonya dijumlahkan jadi "stok live"
+// toko itu (maks 5 akun aktif PER guildId, lihat MAX_ROBLOX_ACCOUNTS di
+// services/roblox/stockPoller.ts). Diatur lewat /admin addrobloxaccount / listrobloxaccounts /
+// removerobloxaccount - tidak perlu edit .env.
 model RobloxAccount {
   id             String    @id @default(cuid())
+  guildId        String    // server Discord (toko) pemilik akun ini
   label          String    // nama bebas dari admin untuk membedakan akun, mis. "Akun 1"
   cookie         String    // .ROBLOSECURITY - SANGAT SENSITIF, setara password penuh akun ini
   active         Boolean   @default(true)
@@ -101,11 +109,12 @@ model RobloxAccount {
   stockError     String?   // pesan error polling terakhir untuk akun ini, null kalau sehat
   createdAt      DateTime  @default(now())
 
-  @@index([active])
+  @@index([guildId, active])
 }
 
 model TransactionLog {
   id        String   @id @default(cuid())
+  guildId   String?  // server Discord asal log ini (dipakai untuk alert yang tidak terikat ke satu order, mis. stok)
   orderId   String?
   order     Order?   @relation(fields: [orderId], references: [id])
   type      String   // NEW_ORDER, PAYMENT_VERIFIED, PAYMENT_REJECTED, ORDER_COMPLETED, ORDER_CANCELLED, ADMIN_ACTION
@@ -114,4 +123,5 @@ model TransactionLog {
   createdAt DateTime @default(now())
 
   @@index([orderId])
+  @@index([guildId])
 }

@@ -8,7 +8,12 @@ export const data = new SlashCommandBuilder()
   .setDescription('Lihat riwayat transaksi Anda');
 
 export async function execute(interaction: ChatInputCommandInteraction) {
-  const orders = await getUserOrderHistory(interaction.user.id);
+  if (!interaction.guildId) {
+    await interaction.reply({ embeds: [errorEmbed('Command ini hanya bisa digunakan di dalam server.')], ephemeral: true });
+    return;
+  }
+
+  const orders = await getUserOrderHistory(interaction.user.id, interaction.guildId);
 
   if (orders.length === 0) {
     await interaction.reply({ embeds: [errorEmbed('Anda belum memiliki riwayat transaksi.')], ephemeral: true });

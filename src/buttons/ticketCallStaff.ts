@@ -3,7 +3,7 @@ import { getBotSetting } from '../database/prisma';
 import { successEmbed } from '../utils/embeds';
 
 export async function handleTicketCallStaff(interaction: ButtonInteraction) {
-  const setting = await getBotSetting();
+  const setting = await getBotSetting(interaction.guildId!);
   const mention = setting.staffRoleId ? `<@&${setting.staffRoleId}>` : 'Staff';
 
   await interaction.reply({

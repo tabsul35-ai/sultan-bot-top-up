@@ -29,7 +29,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
   await interaction.deferReply({ ephemeral: true });
 
-  const setting = await getBotSetting();
+  const setting = await getBotSetting(interaction.guildId!);
   const bersihkan = interaction.options.getBoolean('bersihkan') ?? false;
   const catatan = await tidyPanelChannel(channel, {
     botId: interaction.client.user.id,
@@ -41,9 +41,9 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
   // Ingat channel ini supaya /lockdown membiarkannya tetap publik.
   await prisma.botSetting.upsert({
-    where: { id: 1 },
+    where: { guildId: interaction.guildId! },
     update: { verifyChannelId: channel.id },
-    create: { id: 1, verifyChannelId: channel.id },
+    create: { guildId: interaction.guildId!, verifyChannelId: channel.id },
   });
 
   const roleWarn = setting.verifiedRoleId

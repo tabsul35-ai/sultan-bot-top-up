@@ -16,19 +16,19 @@ export async function handleOrderConfirm(interaction: ButtonInteraction, args: s
     return;
   }
 
-  const username = getPendingRobuxUsername(interaction.user.id);
-  if (!username) {
-    await interaction.update({ embeds: [errorEmbed('Sesi Anda sudah kedaluwarsa. Silakan mulai lagi dengan `/buy`.')], components: [] });
-    return;
-  }
-
   if (!interaction.guild) {
     await interaction.update({ embeds: [errorEmbed('Command ini hanya bisa digunakan di dalam server.')], components: [] });
     return;
   }
 
+  const username = getPendingRobuxUsername(interaction.guild.id, interaction.user.id);
+  if (!username) {
+    await interaction.update({ embeds: [errorEmbed('Sesi Anda sudah kedaluwarsa. Silakan mulai lagi dengan `/buy`.')], components: [] });
+    return;
+  }
+
   // Double-check anti-spam di titik akhir sebelum benar-benar membuat order
-  const activeOrder = await getActiveOrderForUser(interaction.user.id);
+  const activeOrder = await getActiveOrderForUser(interaction.user.id, interaction.guild.id);
   if (activeOrder) {
     await interaction.update({
       embeds: [errorEmbed(`Anda masih memiliki order aktif (**${activeOrder.orderCode}**).`)],
@@ -40,6 +40,7 @@ export async function handleOrderConfirm(interaction: ButtonInteraction, args: s
   await interaction.update({ embeds: [successEmbed('Memproses pesanan Anda...')], components: [] });
 
   const order = await createRobuxOrder({
+    guildId: interaction.guild.id,
     discordId: interaction.user.id,
     robloxUsername: username,
     robuxAmount: amount,
@@ -66,9 +67,10 @@ export async function handleOrderConfirm(interaction: ButtonInteraction, args: s
     return;
   }
 
-  clearPendingRobuxOrder(interaction.user.id);
+  clearPendingRobuxOrder(interaction.guild.id, interaction.user.id);
 
   await logTransaction(interaction.client, {
+    guildId: order.guildId,
     orderId: order.id,
     type: 'NEW_ORDER',
     title: '🛒 NEW ORDER',

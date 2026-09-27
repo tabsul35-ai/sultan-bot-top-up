@@ -7,7 +7,7 @@ import { getBotSetting } from '../database/prisma';
 export async function isStaffOrAdmin(member: GuildMember): Promise<boolean> {
   if (member.permissions.has(PermissionFlagsBits.ManageGuild)) return true;
 
-  const setting = await getBotSetting();
+  const setting = await getBotSetting(member.guild.id);
   if (setting.staffRoleId && member.roles.cache.has(setting.staffRoleId)) return true;
   if (setting.adminRoleId && member.roles.cache.has(setting.adminRoleId)) return true;
   return false;
@@ -19,7 +19,7 @@ export async function isStaffOrAdmin(member: GuildMember): Promise<boolean> {
 export async function isAdmin(member: GuildMember): Promise<boolean> {
   if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
 
-  const setting = await getBotSetting();
+  const setting = await getBotSetting(member.guild.id);
   if (setting.adminRoleId && member.roles.cache.has(setting.adminRoleId)) return true;
   return false;
 }

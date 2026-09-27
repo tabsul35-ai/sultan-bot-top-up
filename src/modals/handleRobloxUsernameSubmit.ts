@@ -37,7 +37,7 @@ export async function handleRobloxUsernameSubmit(interaction: ModalSubmitInterac
   }
   const username = usernameCheck.status === 'found' ? usernameCheck.name : rawUsername;
 
-  setPendingRobuxUsername(interaction.user.id, username);
+  setPendingRobuxUsername(interaction.guildId!, interaction.user.id, username);
 
   // Alur panel: custom_id modal membawa jumlah robux (mis. "modal_roblox_username:500").
   // Jumlah sudah dipilih di panel, jadi langsung ke ringkasan harga + tombol konfirmasi.
@@ -45,7 +45,7 @@ export async function handleRobloxUsernameSubmit(interaction: ModalSubmitInterac
   const amountFromPanel = args[0] ? Number(args[0]) : null;
 
   if (amountFromPanel != null && isAllowedRobuxAmount(amountFromPanel)) {
-    const setting = await getBotSetting();
+    const setting = await getBotSetting(interaction.guildId!);
     const price = calculateRobuxPrice(amountFromPanel, setting.robuxPricePerUnit);
     await interaction.reply({
       ...buildOrderConfirmView({ username, amount: amountFromPanel, price }),
