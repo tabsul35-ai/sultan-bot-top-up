@@ -309,7 +309,10 @@ export async function fetchReplaceOptions(account: RedfingerAccount): Promise<Re
     // Versi Android & region saat ini terbaca dari panel device.
     const { version, region } = result.options.current;
     await prisma.redfingerAccount
-      .update({ where: { id: account.id }, data: { ...(version ? { androidVersion: version } : {}), ...(region ? { region } : {}) } })
+      .update({
+        where: { id: account.id },
+        data: { instanceId: result.options.padCode, ...(version ? { androidVersion: version } : {}), ...(region ? { region } : {}) },
+      })
       .catch(() => {});
   }
   return result;
@@ -379,7 +382,8 @@ export async function runReplace(
   }
 
   // Cocokkan device lama → device hasil replace
-  const stillThere = result.devices.find((d) => d.remoteId === oldCode);
+  const resolvedOld = result.padCode;
+  const stillThere = result.devices.find((d) => d.remoteId === resolvedOld);
   const fresh = result.devices.filter((d) => !result.previousCodes.includes(d.remoteId));
   const newDevice = stillThere ?? (fresh.length === 1 ? fresh[0] : null);
 
@@ -393,7 +397,7 @@ export async function runReplace(
         androidVersion: target.version,
         dueDate: newDevice.dueDate,
         status: timeBasedStatus(newDevice.dueDate),
-        notes: [account.notes, `Replace ${new Date().toISOString().slice(0, 10)}: ${oldCode} → ${newDevice.remoteId} (${target.server} · Android ${target.version}).`]
+        notes: [account.notes, `Replace ${new Date().toISOString().slice(0, 10)}: ${resolvedOld} → ${newDevice.remoteId} (${target.server} · Android ${target.version}).`]
           .filter(Boolean)
           .join('\n')
           .slice(-1000),
@@ -410,16 +414,16 @@ export async function runReplace(
 
   task = await prisma.redfingerTask.update({
     where: { id: task.id },
-    data: { status: 'SUCCESS', message: `${oldCode} → ${newDevice?.remoteId ?? oldCode} (${target.server} · Android ${target.version})`, finishedAt: new Date() },
+    data: { status: 'SUCCESS', message: `${resolvedOld} → ${newDevice?.remoteId ?? oldCode} (${target.server} · Android ${target.version})`, finishedAt: new Date() },
   });
   await logRedfingerAction(client, {
     guildId: account.guildId,
     accountId: account.id,
     action: 'REPLACE_SUCCESS',
     title: '✅ Replace berhasil',
-    message: `**${updated.label}** (\`${updated.code}\`): ${oldCode} → ${updated.instanceId} · **${target.server} · Android ${target.version}**. Jatuh tempo ${formatDue(updated.dueDate)}.`,
+    message: `**${updated.label}** (\`${updated.code}\`): ${resolvedOld} → ${updated.instanceId} · **${target.server} · Android ${target.version}**. Jatuh tempo ${formatDue(updated.dueDate)}.`,
     actorId,
     color: BRAND.successColor,
   });
-  return { ok: true, message: result.message, account: updated, oldCode, newCode: updated.instanceId };
+  return { ok: true, message: result.message, account: updated, oldCode: resolvedOld, newCode: updated.instanceId };
 }

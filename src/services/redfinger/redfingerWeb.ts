@@ -559,6 +559,8 @@ export interface ReplaceVersion {
   servers: ReplaceServer[];
 }
 export interface ReplaceOptions {
+  /** padCode device (VM…) - hasil terjemahan bila yang diminta masih id lama (padId). */
+  padCode: string;
   current: { version: string | null; region: string | null; deviceName: string | null };
   versions: ReplaceVersion[];
   rules: string | null;
@@ -566,15 +568,19 @@ export interface ReplaceOptions {
 
 export type ReplaceOptionsResult = ({ kind: 'ok'; options: ReplaceOptions; diagnosticFile: string | null } | Failure) & { storageState?: string };
 export type ReplaceResult = (
-  | { kind: 'ok'; message: string; devices: ParsedDevice[]; previousCodes: string[]; diagnosticFile: string | null }
+  | { kind: 'ok'; message: string; padCode: string; devices: ParsedDevice[]; previousCodes: string[]; diagnosticFile: string | null }
   | Failure
 ) & { storageState?: string };
 
 /** Dari daftar cloud phone, buka panel setting device `padCode` lalu tekan REPLACE di panel. */
-async function openReplacePage(ctx: SessionContext, padCode: string): Promise<{ current: ReplaceOptions['current'] } | Failure> {
+async function openReplacePage(ctx: SessionContext, deviceId: string): Promise<{ current: ReplaceOptions['current']; padCode: string } | Failure> {
   const { page } = ctx;
+  const mark = ctx.api.length;
   await page.goto(PHONE_URL, { waitUntil: 'networkidle', timeout: 60_000 }).catch(() => {});
   await page.waitForTimeout(3500);
+  // Terjemahkan id lama (padId numerik) → padCode yang tampil sebagai "Device ID" di panel.
+  const listed = extractDevices(ctx.api.slice(mark));
+  const padCode = listed.find((d) => d.remoteId === deviceId || d.altIds.includes(deviceId))?.remoteId ?? deviceId;
 
   const cards = page.locator('.device-card');
   const count: number = await cards.count().catch(() => 0);
@@ -610,7 +616,7 @@ async function openReplacePage(ctx: SessionContext, padCode: string): Promise<{ 
       ctx.pages.push(await pageOutline(page));
       return { kind: 'failed', message: 'Halaman replace Redfinger tidak terbuka.', diagnosticFile: await ctx.diag('replace-nopage') };
     }
-    return { current };
+    return { current, padCode };
   }
   ctx.pages.push(await pageOutline(page));
   return { kind: 'failed', message: `Device ${padCode} tidak ditemukan di akun Redfinger ini.`, diagnosticFile: await ctx.diag('replace-nodevice') };
@@ -722,7 +728,7 @@ export async function getReplaceOptions(email: string, password: string, padCode
 
       ctx.pages.push(await pageOutline(page));
       const diagnosticFile = await ctx.diag('replace-options', { versions: result.length });
-      return { kind: 'ok', options: { current: opened.current, versions: result, rules: rules?.slice(0, 1500) ?? null }, diagnosticFile };
+      return { kind: 'ok', options: { padCode: opened.padCode, current: opened.current, versions: result, rules: rules?.slice(0, 1500) ?? null }, diagnosticFile };
     }
   ) as Promise<ReplaceOptionsResult>;
 }
@@ -814,7 +820,7 @@ export async function performReplace(
       await page.waitForTimeout(3000);
       const after = await loadDevices(ctx);
       const previousCodes = before.map((d) => d.remoteId);
-      const changed = after.some((d) => !previousCodes.includes(d.remoteId)) || !after.some((d) => d.remoteId === padCode);
+      const changed = after.some((d) => !previousCodes.includes(d.remoteId)) || !after.some((d) => d.remoteId === opened.padCode);
       if (!apiResult && !changed) {
         return {
           kind: 'needs_calibration',
@@ -822,7 +828,7 @@ export async function performReplace(
           diagnosticFile,
         };
       }
-      return { kind: 'ok', message: apiResult?.msg || 'Replace berhasil diproses Redfinger.', devices: after, previousCodes, diagnosticFile };
+      return { kind: 'ok', message: apiResult?.msg || 'Replace berhasil diproses Redfinger.', padCode: opened.padCode, devices: after, previousCodes, diagnosticFile };
     },
     60_000
   ) as Promise<ReplaceResult>;
