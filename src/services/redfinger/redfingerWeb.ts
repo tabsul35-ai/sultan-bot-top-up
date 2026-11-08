@@ -580,22 +580,37 @@ async function openReplacePage(ctx: SessionContext, deviceId: string): Promise<{
   await page.waitForTimeout(3500);
   // Terjemahkan id lama (padId numerik) → padCode yang tampil sebagai "Device ID" di panel.
   const listed = extractDevices(ctx.api.slice(mark));
-  const padCode = listed.find((d) => d.remoteId === deviceId || d.altIds.includes(deviceId))?.remoteId ?? deviceId;
+  const target = listed.find((d) => d.remoteId === deviceId || d.altIds.includes(deviceId));
+  const padCode = target?.remoteId ?? deviceId;
 
+  // Panel setting yang sudah terbuka tidak tertutup dengan Escape dan menghalangi klik kartu lain,
+  // jadi: coba kartu bernama sama dulu, lalu (kalau perlu) tiap kartu dengan halaman dimuat ulang.
   const cards = page.locator('.device-card');
   const count: number = await cards.count().catch(() => 0);
-  for (let i = 0; i < count; i++) {
-    const setting = cards.nth(i).locator('.device-card__setting').first();
+  const order: number[] = [];
+  if (target?.name) {
+    for (let i = 0; i < count; i++) {
+      const name = String(await cards.nth(i).locator('.name').first().innerText().catch(() => '')).trim();
+      if (name === target.name) order.push(i);
+    }
+  }
+  for (let i = 0; i < count; i++) if (!order.includes(i)) order.push(i);
+
+  const panelShows = async () => {
+    const text: string = await page.locator('.phone-panel').first().innerText().catch(() => '');
+    return new RegExp(`Device ID:\\s*${padCode}\\b`).test(text.replace(/\s+/g, ' '));
+  };
+
+  for (let attempt = 0; attempt < order.length; attempt++) {
+    if (attempt > 0) {
+      await page.goto(PHONE_URL, { waitUntil: 'networkidle', timeout: 60_000 }).catch(() => {});
+      await page.waitForTimeout(3000);
+    }
+    const setting = page.locator('.device-card').nth(order[attempt]).locator('.device-card__setting').first();
     if (!(await setting.isVisible().catch(() => false))) continue;
     await setting.click().catch(() => {});
     await page.waitForTimeout(2000);
-
-    const panelText: string = await page.locator('body').innerText().catch(() => '');
-    if (!panelText.includes(`Device ID: ${padCode}`)) {
-      await page.keyboard.press('Escape').catch(() => {});
-      await page.waitForTimeout(800);
-      continue;
-    }
+    if (!(await panelShows())) continue;
 
     const current = await page
       .evaluate(() => {
