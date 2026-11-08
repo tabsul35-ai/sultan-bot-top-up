@@ -14,9 +14,18 @@ import { isRedfingerAdmin } from '../utils/permissions';
 import { errorEmbed, successEmbed, baseEmbed } from '../utils/embeds';
 import { BRAND } from '../config/config';
 import { ACTIONABLE_STATUSES, buildAccountEmbed, findAccount, maskIdentifier, statusText } from '../services/redfinger/accountService';
-import { loginsNeedingRetry, logoutLogin, managerStats, runLoginSync } from '../services/redfinger/loginService';
+import { fetchReplaceOptions, loginsNeedingRetry, logoutLogin, managerStats, runLoginSync, runReplace } from '../services/redfinger/loginService';
 import { buildRedfingerPanel } from '../panels/redfingerPanel';
 import { approveSend, cancelVerification, isWaiting } from '../services/redfinger/verification';
+import {
+  createReplaceSession,
+  endReplaceSession,
+  getReplaceSession,
+  progressEmbed,
+  regionFlag,
+  replaceConfirmView,
+  replaceSessionView,
+} from '../services/redfinger/replaceFlow';
 import { logRedfingerAction, renewProgressButtons, replaceProgressButtons } from '../services/redfinger/notify';
 import { cancelProcess, markProcessFailed, renewChecklistEmbed, setAccountDisabled, startRenew, startReplace } from '../services/redfinger/workflow';
 import {
@@ -234,6 +243,57 @@ export async function handleRedfingerButton(interaction: MessageComponentInterac
     return;
   }
 
+  // ===== Replace otomatis: tombol Ganti Spesifikasi / konfirmasi / batal (args[0] = id sesi) =====
+  if (base === CustomId.RF_RPL_GO || base === CustomId.RF_RPL_YES || base === CustomId.RF_RPL_CANCEL) {
+    const session = getReplaceSession(args[0] ?? '');
+    if (!session || session.guildId !== guildId) {
+      await interaction.update({ embeds: [errorEmbed('Sesi replace sudah kedaluwarsa. Tekan **Replace** di panel lagi.')], components: [] });
+      return;
+    }
+    if (session.userId !== interaction.user.id) {
+      await interaction.reply({ embeds: [errorEmbed('Sesi replace ini milik admin lain.')], ephemeral: true });
+      return;
+    }
+    if (base === CustomId.RF_RPL_CANCEL) {
+      endReplaceSession(session.id);
+      await interaction.update({ embeds: [successEmbed('Replace dibatalkan. Tidak ada perubahan di Redfinger.')], components: [] });
+      return;
+    }
+    if (session.chosen === null) {
+      await interaction.reply({ embeds: [errorEmbed('Pilih region & ROM tujuan dulu.')], ephemeral: true });
+      return;
+    }
+    if (base === CustomId.RF_RPL_GO) {
+      await interaction.update(replaceConfirmView(session));
+      return;
+    }
+
+    // RF_RPL_YES → jalankan replace
+    const target = session.choices[session.chosen];
+    endReplaceSession(session.id);
+    const acc = await prisma.redfingerAccount.findFirst({ where: { id: session.accountId, guildId } });
+    if (!acc) {
+      await interaction.update({ embeds: [errorEmbed('Device sudah tidak ada.')], components: [] });
+      return;
+    }
+    await interaction.update({
+      embeds: [progressEmbed(`⏳ **[PROSES]** Menjalankan replace **${acc.label}** → ${regionFlag(target.server)} **${target.server} · Android ${target.version}** di Redfinger... (±1 menit)`)],
+      components: [],
+    });
+    const summary = await runReplace(interaction.client, acc, { version: target.version, server: target.server }, interaction.user.id);
+    await interaction.editReply({
+      embeds: [
+        summary.ok && summary.account
+          ? buildAccountEmbed(summary.account, { full: true, title: `✅ Replace berhasil — ${summary.account.label}` })
+              .setColor(BRAND.successColor)
+              .setDescription(`\`${summary.oldCode}\` → \`${summary.newCode}\` · ${regionFlag(target.server)} **${target.server} · Android ${target.version}**`)
+          : errorEmbed(`Replace **${acc.label}** gagal: ${summary.message}\n\nStatus device dikembalikan; tidak ada yang berubah di bot.`),
+      ],
+      components: [],
+    });
+    return;
+  }
+
   const account = args[0] ? await findAccount(guildId, args[0]) : null;
   if (!account) {
     await interaction.reply({ embeds: [errorEmbed('Akun Redfinger tidak ditemukan (mungkin sudah dihapus).')], ephemeral: true });
@@ -262,6 +322,32 @@ export async function handleRedfingerButton(interaction: MessageComponentInterac
 
     case CustomId.RF_REPLACE: {
       await interaction.deferReply({ ephemeral: true });
+
+      // Device hasil sinkron Register → replace otomatis langsung di Redfinger (pilih region & ROM).
+      if (account.loginId && account.instanceId) {
+        if (account.status === 'DISABLED' || account.status === 'REPLACED') {
+          await interaction.editReply({ embeds: [errorEmbed(`Device berstatus ${statusText(account.status)} - tidak bisa di-replace.`)] });
+          return;
+        }
+        await interaction.editReply({
+          embeds: [progressEmbed(`⏳ **[PROSES]** Mengambil pilihan region & ROM dari Redfinger untuk **${account.label}** (\`${account.instanceId}\`)... (±30 detik)`)],
+        });
+        const res = await fetchReplaceOptions(account);
+        if (res.kind !== 'ok') {
+          await interaction.editReply({ embeds: [errorEmbed(`Gagal mengambil opsi replace: ${res.message}`)] });
+          return;
+        }
+        if (res.options.versions.every((v) => v.servers.length === 0)) {
+          await interaction.editReply({ embeds: [errorEmbed('Redfinger tidak menawarkan region/ROM tujuan untuk device ini saat ini.')] });
+          return;
+        }
+        const fresh = (await prisma.redfingerAccount.findUnique({ where: { id: account.id } })) ?? account;
+        const session = createReplaceSession(fresh, actorId, res.options);
+        await interaction.editReply(replaceSessionView(session, fresh));
+        return;
+      }
+
+      // Device manual (tanpa login) → alur lama: isi data akun/instance pengganti.
       const res = await startReplace(client, account, actorId);
       if (!res.ok) {
         await interaction.editReply({ embeds: [errorEmbed(res.error)] });
@@ -371,6 +457,25 @@ export async function handleRedfingerSelect(interaction: StringSelectMenuInterac
   const value = interaction.values[0] ?? '';
 
   // Renew / Replace dari panel: pakai alur yang sama persis dengan tombol di notifikasi.
+  // Pilih region · Android pada sesi replace otomatis
+  if (interaction.customId.startsWith(`${CustomId.RF_RPL_OPT}:`)) {
+    const [, sessionId] = interaction.customId.split(':');
+    const session = getReplaceSession(sessionId ?? '');
+    if (!session || session.userId !== interaction.user.id) {
+      await interaction.update({ embeds: [errorEmbed('Sesi replace sudah kedaluwarsa. Tekan **Replace** di panel lagi.')], components: [] });
+      return;
+    }
+    const index = Number(value);
+    if (Number.isInteger(index) && index >= 0 && index < session.choices.length) session.chosen = index;
+    const acc = await prisma.redfingerAccount.findFirst({ where: { id: session.accountId, guildId } });
+    if (!acc) {
+      await interaction.update({ embeds: [errorEmbed('Device sudah tidak ada.')], components: [] });
+      return;
+    }
+    await interaction.update(replaceSessionView(session, acc));
+    return;
+  }
+
   if (interaction.customId === CustomId.RF_PICK_RENEW || interaction.customId === CustomId.RF_PICK_REPLACE) {
     await handleRedfingerButton(interaction, interaction.customId === CustomId.RF_PICK_RENEW ? CustomId.RF_RENEW : CustomId.RF_REPLACE, [value]);
     return;

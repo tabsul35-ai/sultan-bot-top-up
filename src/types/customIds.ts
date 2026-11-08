@@ -89,6 +89,11 @@ export const CustomId = {
   RF_VCODE: 'rf_vcode', // buka modal input kode
   RF_VCANCEL: 'rf_vcancel',
   RF_MODAL_VCODE: 'rf_modal_vcode',
+  // Replace otomatis (argumen = id sesi replace)
+  RF_RPL_OPT: 'rf_rplopt', // select region · Android (rf_rplopt:<sesi>:<chunk>)
+  RF_RPL_GO: 'rf_rplgo', // tombol Ganti Spesifikasi
+  RF_RPL_YES: 'rf_rplyes', // konfirmasi akhir
+  RF_RPL_CANCEL: 'rf_rplx',
   RF_INPUT_VCODE: 'rf_input_vcode',
   RF_INPUT_EMAIL: 'rf_input_email',
 

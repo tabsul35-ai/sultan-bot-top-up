@@ -5,7 +5,16 @@ import { BRAND } from '../../config/config';
 import { createAccount, maskIdentifier, statusText, timeBasedStatus } from './accountService';
 import { decryptSecret, encryptSecret, isEncryptionConfigured } from './crypto';
 import { enqueueBrowserJob } from './browserAutomation';
-import { loginAndSync, ParsedDevice, SyncResult, webAutomationAvailable } from './redfingerWeb';
+import {
+  getReplaceOptions,
+  loginAndSync,
+  ParsedDevice,
+  performReplace,
+  ReplaceOptionsResult,
+  ReplaceResult,
+  SyncResult,
+  webAutomationAvailable,
+} from './redfingerWeb';
 import { createDiscordVerifier } from './verification';
 import type { InteractionEditReplyOptions } from 'discord.js';
 import { logRedfingerAction } from './notify';
@@ -50,8 +59,9 @@ async function applyDevices(client: Client, login: RedfingerLogin, devices: Pars
   const updated: RedfingerAccount[] = [];
 
   for (const device of devices) {
+    const ids = [device.remoteId, ...device.altIds];
     const existing = await prisma.redfingerAccount.findFirst({
-      where: { guildId: login.guildId, instanceId: { equals: device.remoteId, mode: 'insensitive' }, status: { not: 'REPLACED' } },
+      where: { guildId: login.guildId, status: { not: 'REPLACED' }, OR: ids.map((id) => ({ instanceId: { equals: id, mode: 'insensitive' as const } })) },
     });
 
     if (!existing) {
@@ -81,7 +91,12 @@ async function applyDevices(client: Client, login: RedfingerLogin, devices: Pars
       continue;
     }
 
-    const meta = { loginId: login.id, region: device.region ?? existing.region, androidVersion: device.androidVersion ?? existing.androidVersion };
+    const meta = {
+      loginId: login.id,
+      instanceId: device.remoteId, // perbarui id lama (padId) → padCode
+      region: device.region ?? existing.region,
+      androidVersion: device.androidVersion ?? existing.androidVersion,
+    };
     const dueChanged = Math.abs(existing.dueDate.getTime() - device.dueDate.getTime()) > 60_000;
 
     if (dueChanged && existing.status === 'RENEWING' && device.dueDate > existing.dueDate) {
@@ -256,4 +271,155 @@ export async function managerStats(guildId: string) {
     renews: taskCount('RENEW'),
     replaces: taskCount('REPLACE'),
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// REPLACE otomatis (ganti region / versi Android device di Redfinger)
+// ---------------------------------------------------------------------------------------------
+
+async function loginCredentials(loginId: string | null) {
+  if (!loginId) return null;
+  const login = await prisma.redfingerLogin.findUnique({ where: { id: loginId } });
+  if (!login) return null;
+  let storageState: string | null = null;
+  try {
+    storageState = login.browserStateEncrypted ? decryptSecret(login.browserStateEncrypted) : null;
+  } catch {
+    storageState = null;
+  }
+  return { login, password: decryptSecret(login.passwordEncrypted), storageState };
+}
+
+async function saveStorageState(loginId: string, state?: string) {
+  if (!state) return;
+  await prisma.redfingerLogin.update({ where: { id: loginId }, data: { browserStateEncrypted: encryptSecret(state) } }).catch(() => {});
+}
+
+/** Ambil pilihan versi Android × server untuk replace device ini (langsung dari Redfinger). */
+export async function fetchReplaceOptions(account: RedfingerAccount): Promise<ReplaceOptionsResult> {
+  const creds = await loginCredentials(account.loginId);
+  if (!creds) return { kind: 'failed', message: 'Device ini tidak terhubung ke akun login (Register) - replace otomatis tidak bisa dijalankan.', diagnosticFile: null };
+  if (!account.instanceId) return { kind: 'failed', message: 'Device ID (padCode) device ini kosong.', diagnosticFile: null };
+
+  const result = await enqueueBrowserJob(() =>
+    getReplaceOptions(creds.login.email, creds.password, account.instanceId!, { storageState: creds.storageState, tag: `replace-options-${account.code}` })
+  );
+  await saveStorageState(creds.login.id, result.storageState);
+  if (result.kind === 'ok') {
+    // Versi Android & region saat ini terbaca dari panel device.
+    const { version, region } = result.options.current;
+    await prisma.redfingerAccount
+      .update({ where: { id: account.id }, data: { ...(version ? { androidVersion: version } : {}), ...(region ? { region } : {}) } })
+      .catch(() => {});
+  }
+  return result;
+}
+
+export interface ReplaceRunSummary {
+  ok: boolean;
+  message: string;
+  account: RedfingerAccount | null;
+  oldCode: string | null;
+  newCode: string | null;
+}
+
+/** Jalankan replace di Redfinger lalu perbarui device di database (kode RF & label tetap). */
+export async function runReplace(
+  client: Client,
+  account: RedfingerAccount,
+  target: { version: string; server: string },
+  actorId: string
+): Promise<ReplaceRunSummary> {
+  const creds = await loginCredentials(account.loginId);
+  if (!creds || !account.instanceId) {
+    return { ok: false, message: 'Device ini tidak terhubung ke akun login (Register).', account, oldCode: account.instanceId, newCode: null };
+  }
+  const oldCode = account.instanceId;
+
+  // Proses replace manual lama (kalau ada) ditutup - diganti proses otomatis ini.
+  await prisma.redfingerJob.updateMany({
+    where: { accountId: account.id, status: { in: ['STARTED', 'NEEDS_VERIFICATION'] } },
+    data: { status: 'CANCELLED', message: 'Digantikan replace otomatis.', finishedAt: new Date() },
+  });
+  await prisma.redfingerAccount.update({ where: { id: account.id }, data: { status: 'REPLACING' } });
+  let task = await prisma.redfingerTask.create({
+    data: { guildId: account.guildId, loginId: creds.login.id, accountId: account.id, type: 'REPLACE', status: 'QUEUED', actorId },
+  });
+  await logRedfingerAction(client, {
+    guildId: account.guildId,
+    accountId: account.id,
+    action: 'REPLACE_START',
+    title: '🔁 Replace otomatis dimulai',
+    message: `**${account.label}** (\`${account.code}\` · ${oldCode}) → **${target.server} · Android ${target.version}**.`,
+    actorId,
+  });
+
+  const result: ReplaceResult = await enqueueBrowserJob(async () => {
+    task = await prisma.redfingerTask.update({ where: { id: task.id }, data: { status: 'RUNNING', attempts: { increment: 1 } } });
+    return performReplace(creds.login.email, creds.password, oldCode, target, { storageState: creds.storageState, tag: `replace-${account.code}` });
+  });
+  await saveStorageState(creds.login.id, result.storageState);
+
+  if (result.kind !== 'ok') {
+    const restored = await prisma.redfingerAccount.update({ where: { id: account.id }, data: { status: timeBasedStatus(account.dueDate) } });
+    task = await prisma.redfingerTask.update({
+      where: { id: task.id },
+      data: { status: result.kind === 'needs_verification' ? 'NEEDS_VERIFICATION' : 'FAILED', message: result.message.slice(0, 500), finishedAt: new Date() },
+    });
+    await logRedfingerAction(client, {
+      guildId: account.guildId,
+      accountId: account.id,
+      action: 'REPLACE_FAILED',
+      title: '❌ Replace gagal',
+      message: `**${account.label}** (\`${account.code}\`): ${result.message}${result.diagnosticFile ? '\nDiagnostik tersimpan di server.' : ''}`,
+      actorId,
+      color: BRAND.errorColor,
+    });
+    return { ok: false, message: result.message, account: restored, oldCode, newCode: null };
+  }
+
+  // Cocokkan device lama → device hasil replace
+  const stillThere = result.devices.find((d) => d.remoteId === oldCode);
+  const fresh = result.devices.filter((d) => !result.previousCodes.includes(d.remoteId));
+  const newDevice = stillThere ?? (fresh.length === 1 ? fresh[0] : null);
+
+  let updated: RedfingerAccount;
+  if (newDevice) {
+    updated = await prisma.redfingerAccount.update({
+      where: { id: account.id },
+      data: {
+        instanceId: newDevice.remoteId,
+        region: newDevice.region ?? target.server,
+        androidVersion: target.version,
+        dueDate: newDevice.dueDate,
+        status: timeBasedStatus(newDevice.dueDate),
+        notes: [account.notes, `Replace ${new Date().toISOString().slice(0, 10)}: ${oldCode} → ${newDevice.remoteId} (${target.server} · Android ${target.version}).`]
+          .filter(Boolean)
+          .join('\n')
+          .slice(-1000),
+      },
+    });
+  } else {
+    updated = await prisma.redfingerAccount.update({
+      where: { id: account.id },
+      data: { region: target.server, androidVersion: target.version, status: timeBasedStatus(account.dueDate) },
+    });
+  }
+  // Device lain di akun yang sama ikut diperbarui
+  await applyDevices(client, creds.login, result.devices, actorId);
+
+  task = await prisma.redfingerTask.update({
+    where: { id: task.id },
+    data: { status: 'SUCCESS', message: `${oldCode} → ${newDevice?.remoteId ?? oldCode} (${target.server} · Android ${target.version})`, finishedAt: new Date() },
+  });
+  await logRedfingerAction(client, {
+    guildId: account.guildId,
+    accountId: account.id,
+    action: 'REPLACE_SUCCESS',
+    title: '✅ Replace berhasil',
+    message: `**${updated.label}** (\`${updated.code}\`): ${oldCode} → ${updated.instanceId} · **${target.server} · Android ${target.version}**. Jatuh tempo ${formatDue(updated.dueDate)}.`,
+    actorId,
+    color: BRAND.successColor,
+  });
+  return { ok: true, message: result.message, account: updated, oldCode, newCode: updated.instanceId };
 }
