@@ -35,7 +35,7 @@ const VERIFICATION_SELECTORS = [
   '[class*="slider-verify" i]',
   'input[autocomplete="one-time-code"]',
 ];
-const VERIFICATION_MSG = /verif|captcha|robot|security|risk|otp|code sent|slide/i;
+const VERIFICATION_MSG = /verif|captcha|robot|security|risk|otp|code sent|slide|new device/i;
 const BAD_CREDENTIAL_MSG = /not exist|password|incorrect|wrong|invalid account|check your account/i;
 const SECRET_KEY = /token|session|cookie|sign|secret|pass|auth|rsa|key$|imei|mac|ticket/i;
 const EMAIL = /[\w.+-]+@[\w-]+\.[\w.]+/g;
@@ -48,9 +48,13 @@ export interface ParsedDevice {
   androidVersion: string | null;
 }
 
-export type SyncResult =
+export type SyncResult = (
   | { kind: 'ok'; devices: ParsedDevice[]; diagnosticFile: string | null }
-  | { kind: 'bad_credentials' | 'needs_verification' | 'failed' | 'needs_calibration'; message: string; diagnosticFile: string | null };
+  | { kind: 'bad_credentials' | 'needs_verification' | 'failed' | 'needs_calibration'; message: string; diagnosticFile: string | null }
+) & {
+  /** Identitas perangkat terbaru (JSON storageState Playwright) - diisi kalau login berhasil. Simpan terenkripsi. */
+  storageState?: string;
+};
 
 interface ApiEntry {
   path: string;
@@ -224,10 +228,51 @@ async function hasVerification(page: any): Promise<boolean> {
 }
 
 /**
+ * Penghubung ke manusia saat Redfinger meminta verifikasi perangkat baru (kode via email).
+ * Bot TIDAK pernah membuat/menebak kode - kode diketik admin dari email miliknya sendiri.
+ */
+export interface Verifier {
+  /** Minta persetujuan admin untuk mengirim kode verifikasi ke email akun. false = batal/timeout. */
+  confirmSend(info: { emailMasked: string }): Promise<boolean>;
+  /** Minta kode dari admin. null = batal/timeout. */
+  askCode(info: { attempt: number; error?: string }): Promise<string | null>;
+}
+
+const NEW_DEVICE_CODE = 3401;
+const MAX_CODE_ATTEMPTS = 3;
+
+function maskEmail(email: string): string {
+  const [user, domain] = email.split('@');
+  return `${user.slice(0, 2)}•••@${domain ?? ''}`;
+}
+
+/** Kolom kode verifikasi yang terlihat (bukan kolom email/password login). */
+async function findCodeInputs(page: any): Promise<any[]> {
+  const loc = page.locator('input');
+  const count: number = await loc.count().catch(() => 0);
+  const result: any[] = [];
+  for (let i = 0; i < count; i++) {
+    const item = loc.nth(i);
+    if (!(await item.isVisible().catch(() => false))) continue;
+    const ph = String((await item.getAttribute('placeholder').catch(() => '')) ?? '');
+    const type = String((await item.getAttribute('type').catch(() => '')) ?? '');
+    if (/^email$/i.test(ph) || type === 'password') continue;
+    result.push(item);
+  }
+  return result;
+}
+
+/**
  * Login + baca daftar device. Tidak pernah melempar error. `collectPages` = simpan juga
  * struktur halaman Redeem Code & Buy/Renew (read-only, tidak menekan apa pun) untuk kalibrasi.
+ * `storageState` = identitas perangkat tersimpan (JSON Playwright). `verifier` = penghubung ke
+ * admin untuk verifikasi perangkat baru; tanpa verifier, verifikasi → needs_verification.
  */
-export async function loginAndSync(email: string, password: string, opts: { collectPages?: boolean; tag?: string } = {}): Promise<SyncResult> {
+export async function loginAndSync(
+  email: string,
+  password: string,
+  opts: { collectPages?: boolean; tag?: string; storageState?: string | null; verifier?: Verifier } = {}
+): Promise<SyncResult> {
   const availability = webAutomationAvailable();
   if (!availability.available) return { kind: 'failed', message: availability.reason!, diagnosticFile: null };
 
@@ -242,9 +287,19 @@ export async function loginAndSync(email: string, password: string, opts: { coll
   const work = async (): Promise<SyncResult> => {
     browser = await pw.chromium.launch({ headless: redfingerConfig.browser.headless });
     if (finished) return { kind: 'failed', message: 'Dibatalkan (timeout).', diagnosticFile: null };
-    const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: 'en-US' });
+
+    let storageState: any = undefined;
+    if (opts.storageState) {
+      try {
+        storageState = JSON.parse(opts.storageState);
+      } catch {
+        storageState = undefined;
+      }
+    }
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: 'en-US', storageState });
     const page = await context.newPage();
     page.setDefaultTimeout(20_000);
+    const saveState = async () => JSON.stringify(await context.storageState());
 
     page.on('response', async (res: any) => {
       const url: string = res.url();
@@ -261,41 +316,129 @@ export async function loginAndSync(email: string, password: string, opts: { coll
       }
     });
 
-    // 1. Login dengan email
+    /** Tunggu sampai keluar dari halaman sign-in, ada error baru, atau verifikasi muncul. */
+    const waitLoginOutcome = async (fromErrorIndex: number, ms: number): Promise<'ok' | 'new_device' | 'challenge' | { error: { code: number; msg: string } } | 'timeout'> => {
+      const until = Date.now() + ms;
+      while (Date.now() < until) {
+        await page.waitForTimeout(1000);
+        if (!/sign-in/.test(page.url())) return 'ok';
+        const err = loginErrors.slice(fromErrorIndex).pop();
+        if (err) return err.code === NEW_DEVICE_CODE || /new device/i.test(err.msg) ? 'new_device' : { error: err };
+        if (await page.locator('.new-device-login').first().isVisible().catch(() => false)) return 'new_device';
+        if (await hasVerification(page)) return 'challenge';
+      }
+      return 'timeout';
+    };
+
+    // 1. Buka halaman login. Dengan identitas perangkat tersimpan, sesi bisa langsung masuk.
     await page.goto(SIGN_IN_URL, { waitUntil: 'networkidle', timeout: 60_000 }).catch(() => {});
     await page.locator('button.ok').click({ timeout: 4000 }).catch(() => {}); // dialog persetujuan (kalau ada)
-    const emailButton = page.locator('button.email-login');
-    if (!(await emailButton.isVisible().catch(() => false))) {
-      pages.push(await pageOutline(page));
-      return { kind: 'failed', message: 'Tombol login email tidak ditemukan (tampilan Redfinger berubah?).', diagnosticFile: await writeDiagnostic(`${tag}-nologin`, api, pages, {}) };
-    }
-    await emailButton.click();
-    await page.locator('input[placeholder="Email"]').fill(email);
-    await page.locator('input[type="password"]').fill(password);
-    await page.getByRole('button', { name: 'SIGN IN' }).last().click();
 
-    // 2. Tunggu hasil login
-    const deadline = Date.now() + 25_000;
-    while (Date.now() < deadline) {
-      await page.waitForTimeout(1000);
-      if (await hasVerification(page)) {
+    const emailButton = page.locator('button.email-login');
+    const alreadyIn = !/sign-in/.test(page.url()) || !(await emailButton.isVisible().catch(() => false));
+    if (!alreadyIn) {
+      await emailButton.click();
+      await page.locator('input[placeholder="Email"]').fill(email);
+      await page.locator('input[type="password"]').fill(password);
+      let errIndex = loginErrors.length;
+      await page.getByRole('button', { name: 'SIGN IN' }).last().click();
+
+      let outcome = await waitLoginOutcome(errIndex, 25_000);
+
+      // 2. Verifikasi perangkat baru (kode dikirim Redfinger ke email akun, diketik admin)
+      if (outcome === 'new_device') {
+        if (!opts.verifier) {
+          return {
+            kind: 'needs_verification',
+            message: 'Redfinger meminta verifikasi perangkat baru (kode ke email akun). Tekan **Retry Tasks** di panel lalu ikuti tombol Kirim Kode.',
+            diagnosticFile: null,
+          };
+        }
+        const approved = await opts.verifier.confirmSend({ emailMasked: maskEmail(email) });
+        if (!approved) return { kind: 'needs_verification', message: 'Verifikasi perangkat baru dibatalkan / tidak dijawab admin.', diagnosticFile: null };
+
+        errIndex = loginErrors.length;
+        const verifyButton = page.locator('.new-device-login button.submit');
+        if (!(await verifyButton.isVisible().catch(() => false))) {
+          pages.push(await pageOutline(page));
+          return { kind: 'failed', message: 'Tombol VERIFY di dialog Security Check tidak ditemukan.', diagnosticFile: await writeDiagnostic(`${tag}-noverify`, api, pages, {}) };
+        }
+        await verifyButton.click();
+        await page.waitForTimeout(5000);
+        pages.push({ step: 'after-verify-click', ...(await pageOutline(page)) });
+        const verifyDiag = await writeDiagnostic(`${tag}-verify-screen`, api, pages, {});
+
+        const sendError = loginErrors.slice(errIndex).pop();
+        if (sendError) {
+          return { kind: 'needs_verification', message: `Redfinger menolak mengirim kode: ${sendError.msg || sendError.code}`, diagnosticFile: verifyDiag };
+        }
+
+        let lastError: string | undefined;
+        let verified = false;
+        for (let attempt = 1; attempt <= MAX_CODE_ATTEMPTS && !verified; attempt++) {
+          const inputs = await findCodeInputs(page);
+          if (inputs.length === 0) {
+            return {
+              kind: 'failed',
+              message: 'Kolom kode verifikasi tidak ditemukan setelah menekan VERIFY. Struktur layar sudah disimpan di server untuk perbaikan.',
+              diagnosticFile: verifyDiag,
+            };
+          }
+          const code = await opts.verifier.askCode({ attempt, error: lastError });
+          if (!code) return { kind: 'needs_verification', message: 'Kode verifikasi tidak dimasukkan (dibatalkan/timeout).', diagnosticFile: verifyDiag };
+
+          if (inputs.length > 1) {
+            // Kotak per digit: klik kotak pertama lalu ketik (fokus pindah otomatis)
+            await inputs[0].click();
+            await page.keyboard.type(code, { delay: 80 });
+          } else {
+            await inputs[0].fill(code);
+          }
+
+          errIndex = loginErrors.length;
+          const submit = page
+            .locator('.modal-content button:visible, [class*=dialog] button:visible, [class*=verify] button:visible')
+            .filter({ hasText: /verify|confirm|submit|ok|next|sign in|done|continue/i })
+            .last();
+          if (await submit.isVisible().catch(() => false)) await submit.click().catch(() => {});
+          else await page.keyboard.press('Enter');
+
+          outcome = await waitLoginOutcome(errIndex, 15_000);
+          if (outcome === 'timeout' && !(await page.locator('.new-device-login').first().isVisible().catch(() => false))) {
+            // Kode diterima tapi belum otomatis masuk - tekan SIGN IN sekali lagi.
+            errIndex = loginErrors.length;
+            await page.getByRole('button', { name: 'SIGN IN' }).last().click().catch(() => {});
+            outcome = await waitLoginOutcome(errIndex, 15_000);
+          }
+          if (outcome === 'ok') verified = true;
+          else if (typeof outcome === 'object') lastError = outcome.error.msg || `kode ${outcome.error.code}`;
+          else if (outcome === 'challenge') {
+            return { kind: 'needs_verification', message: 'Redfinger meminta verifikasi tambahan (CAPTCHA). Bot berhenti.', diagnosticFile: verifyDiag };
+          } else lastError = 'Kode tidak diterima / tidak ada respons dari Redfinger.';
+        }
+        if (!verified) {
+          pages.push({ step: 'code-failed', ...(await pageOutline(page)) });
+          return {
+            kind: 'needs_verification',
+            message: `Verifikasi gagal setelah ${MAX_CODE_ATTEMPTS} percobaan: ${lastError ?? '-'}`,
+            diagnosticFile: await writeDiagnostic(`${tag}-code-failed`, api, pages, {}),
+          };
+        }
+      } else if (outcome === 'challenge') {
         pages.push(await pageOutline(page));
         return {
           kind: 'needs_verification',
-          message: 'Redfinger meminta verifikasi keamanan (CAPTCHA/OTP). Bot berhenti dan tidak mencoba melewatinya.',
+          message: 'Redfinger meminta verifikasi keamanan (CAPTCHA). Bot berhenti dan tidak mencoba melewatinya.',
           diagnosticFile: await writeDiagnostic(`${tag}-verify`, api, pages, {}),
         };
+      } else if (typeof outcome === 'object') {
+        const msg = outcome.error.msg;
+        const kind = VERIFICATION_MSG.test(msg) ? 'needs_verification' : BAD_CREDENTIAL_MSG.test(msg) ? 'bad_credentials' : 'failed';
+        return { kind, message: `Redfinger: ${msg || `kode ${outcome.error.code}`}`, diagnosticFile: null };
+      } else if (outcome === 'timeout') {
+        pages.push(await pageOutline(page));
+        return { kind: 'failed', message: 'Login tidak selesai dalam 25 detik.', diagnosticFile: await writeDiagnostic(`${tag}-timeout`, api, pages, {}) };
       }
-      const err = loginErrors[loginErrors.length - 1];
-      if (err) {
-        const kind = VERIFICATION_MSG.test(err.msg) ? 'needs_verification' : BAD_CREDENTIAL_MSG.test(err.msg) ? 'bad_credentials' : 'failed';
-        return { kind, message: `Redfinger: ${err.msg || `kode ${err.code}`}`, diagnosticFile: null };
-      }
-      if (!/sign-in/.test(page.url())) break;
-    }
-    if (/sign-in/.test(page.url())) {
-      pages.push(await pageOutline(page));
-      return { kind: 'failed', message: 'Login tidak selesai dalam 25 detik.', diagnosticFile: await writeDiagnostic(`${tag}-timeout`, api, pages, {}) };
     }
 
     // 3. Daftar cloud phone
@@ -328,14 +471,16 @@ export async function loginAndSync(email: string, password: string, opts: { coll
     const diagnosticFile =
       opts.collectPages || devices.length === 0 ? await writeDiagnostic(tag, api, pages, { devicesParsed: devices.length }) : null;
 
+    const state = await saveState().catch(() => undefined);
     if (devices.length === 0) {
       return {
         kind: 'needs_calibration',
         message: 'Login berhasil, tetapi daftar device belum bisa dibaca otomatis (atau akun belum punya device). Struktur halaman sudah disimpan di server untuk kalibrasi.',
         diagnosticFile,
+        storageState: state,
       };
     }
-    return { kind: 'ok', devices, diagnosticFile };
+    return { kind: 'ok', devices, diagnosticFile, storageState: state };
   };
 
   let timer: NodeJS.Timeout | undefined;
@@ -343,7 +488,8 @@ export async function loginAndSync(email: string, password: string, opts: { coll
     const timeout = new Promise<SyncResult>((resolve) => {
       timer = setTimeout(
         () => resolve({ kind: 'failed', message: `Melebihi batas waktu ${Math.round(redfingerConfig.browser.timeoutMs / 1000)} detik.`, diagnosticFile: null }),
-        redfingerConfig.browser.timeoutMs
+        // + waktu tunggu admin memasukkan kode verifikasi (kalau ada verifier)
+        redfingerConfig.browser.timeoutMs + (opts.verifier ? 25 * 60 * 1000 : 0)
       );
     });
     return await Promise.race([work(), timeout]);

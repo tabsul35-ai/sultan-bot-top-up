@@ -6,6 +6,8 @@ import { createAccount, maskIdentifier, statusText, timeBasedStatus } from './ac
 import { decryptSecret, encryptSecret, isEncryptionConfigured } from './crypto';
 import { enqueueBrowserJob } from './browserAutomation';
 import { loginAndSync, ParsedDevice, SyncResult, webAutomationAvailable } from './redfingerWeb';
+import { createDiscordVerifier } from './verification';
+import type { InteractionEditReplyOptions } from 'discord.js';
 import { logRedfingerAction } from './notify';
 import { completeRenew } from './workflow';
 import { formatDue } from './dates';
@@ -111,7 +113,12 @@ async function applyDevices(client: Client, login: RedfingerLogin, devices: Pars
 }
 
 /** Buat tugas LOGIN_SYNC dan jalankan (antri, 1 browser sekaligus). Tidak melempar error. */
-export async function runLoginSync(client: Client, loginId: string, actorId: string | null, opts: { collectPages?: boolean } = {}): Promise<SyncSummary | null> {
+export async function runLoginSync(
+  client: Client,
+  loginId: string,
+  actorId: string | null,
+  opts: { collectPages?: boolean; notify?: (payload: InteractionEditReplyOptions) => Promise<unknown> } = {}
+): Promise<SyncSummary | null> {
   const login0 = await prisma.redfingerLogin.findUnique({ where: { id: loginId } });
   if (!login0) return null;
 
@@ -129,7 +136,18 @@ export async function runLoginSync(client: Client, loginId: string, actorId: str
 
     let result: SyncResult;
     try {
-      result = await loginAndSync(login.email, decryptSecret(login.passwordEncrypted), { collectPages: opts.collectPages, tag: task.id });
+      let storageState: string | null = null;
+      try {
+        storageState = login.browserStateEncrypted ? decryptSecret(login.browserStateEncrypted) : null;
+      } catch {
+        storageState = null; // kunci berubah / data rusak → login sebagai perangkat baru
+      }
+      result = await loginAndSync(login.email, decryptSecret(login.passwordEncrypted), {
+        collectPages: opts.collectPages,
+        tag: task.id,
+        storageState,
+        verifier: opts.notify ? createDiscordVerifier(task.id, opts.notify) : undefined,
+      });
     } catch (err) {
       result = { kind: 'failed', message: err instanceof Error ? err.message : 'Error tidak diketahui', diagnosticFile: null };
     }
@@ -159,6 +177,8 @@ export async function runLoginSync(client: Client, loginId: string, actorId: str
       data: {
         status: loginStatus,
         lastError: result.kind === 'ok' ? null : message,
+        // Identitas perangkat yang sudah terverifikasi - disimpan terenkripsi.
+        ...(result.storageState ? { browserStateEncrypted: encryptSecret(result.storageState) } : {}),
         ...(result.kind === 'ok' ? { lastSyncAt: new Date(), deviceCount: result.devices.length } : {}),
       },
     });

@@ -5,6 +5,7 @@ import { isRedfingerAdmin } from '../utils/permissions';
 import { baseEmbed, errorEmbed, successEmbed } from '../utils/embeds';
 import { maskIdentifier } from '../services/redfinger/accountService';
 import { runLoginSync, upsertLogin } from '../services/redfinger/loginService';
+import { submitCode } from '../services/redfinger/verification';
 import { syncResultEmbed } from '../services/redfinger/views';
 import { BRAND } from '../config/config';
 import { buildAccountEmbed, createAccount, findAccount, timeBasedStatus } from '../services/redfinger/accountService';
@@ -58,6 +59,23 @@ export async function handleRedfingerModalSubmit(interaction: ModalSubmitInterac
     return;
   }
 
+  // Kode verifikasi perangkat baru: diteruskan ke tugas yang sedang menunggu (tanpa disimpan).
+  if (base === CustomId.RF_MODAL_VCODE) {
+    const code = interaction.fields.getTextInputValue(CustomId.RF_INPUT_VCODE).trim().replace(/\s+/g, '');
+    const accepted = /^[A-Za-z0-9]{4,12}$/.test(code) && submitCode(args[0] ?? '', code);
+    const payload = {
+      embeds: [
+        accepted
+          ? baseEmbed().setDescription('🔄 Kode diterima, memverifikasi ke Redfinger...')
+          : errorEmbed('Kode tidak valid atau sesi verifikasi sudah tidak aktif. Ulangi lewat **Retry Tasks**.'),
+      ],
+      components: [],
+    };
+    if (interaction.isFromMessage()) await interaction.update(payload);
+    else await interaction.reply({ ...payload, ephemeral: true });
+    return;
+  }
+
   await interaction.deferReply({ ephemeral: true });
   const actorId = interaction.user.id;
 
@@ -82,8 +100,11 @@ export async function handleRedfingerModalSubmit(interaction: ModalSubmitInterac
     });
 
     // Sinkron pertama juga mencatat struktur halaman Redeem/Renew (read-only) untuk kalibrasi.
-    const summary = await runLoginSync(interaction.client, saved.login.id, actorId, { collectPages: !saved.login.lastSyncAt });
-    await interaction.editReply({ embeds: [summary ? await syncResultEmbed(summary) : errorEmbed('Sinkron gagal dijalankan. Cek log bot.')] });
+    const summary = await runLoginSync(interaction.client, saved.login.id, actorId, {
+      collectPages: !saved.login.lastSyncAt,
+      notify: (payload) => interaction.editReply(payload),
+    });
+    await interaction.editReply({ embeds: [summary ? await syncResultEmbed(summary) : errorEmbed('Sinkron gagal dijalankan. Cek log bot.')], components: [] });
     return;
   }
 

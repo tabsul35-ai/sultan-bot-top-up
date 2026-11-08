@@ -16,6 +16,7 @@ import { BRAND } from '../config/config';
 import { ACTIONABLE_STATUSES, buildAccountEmbed, findAccount, maskIdentifier, statusText } from '../services/redfinger/accountService';
 import { loginsNeedingRetry, logoutLogin, managerStats, runLoginSync } from '../services/redfinger/loginService';
 import { buildRedfingerPanel } from '../panels/redfingerPanel';
+import { approveSend, cancelVerification, isWaiting } from '../services/redfinger/verification';
 import { logRedfingerAction, renewProgressButtons, replaceProgressButtons } from '../services/redfinger/notify';
 import { cancelProcess, markProcessFailed, renewChecklistEmbed, setAccountDisabled, startRenew, startReplace } from '../services/redfinger/workflow';
 import {
@@ -35,6 +36,7 @@ import {
   buildRedfingerPasswordModal,
   buildRedfingerRegisterModal,
   buildRedfingerReplaceModal,
+  buildRedfingerVerifyCodeModal,
 } from '../modals/redfingerModals';
 
 /**
@@ -153,10 +155,12 @@ async function handlePanelButton(interaction: ButtonInteraction, base: string, g
       await interaction.editReply({ embeds: [baseEmbed().setDescription(`⏳ Mengulang ${logins.length} tugas sinkron... (sekitar 30-60 detik per akun)`)] });
       const embeds = [];
       for (const login of logins) {
-        const summary = await runLoginSync(interaction.client, login.id, interaction.user.id);
+        const summary = await runLoginSync(interaction.client, login.id, interaction.user.id, {
+          notify: (payload) => interaction.editReply(payload),
+        });
         if (summary) embeds.push(await syncResultEmbed(summary));
       }
-      await interaction.editReply({ embeds: embeds.slice(0, 10) });
+      await interaction.editReply({ embeds: embeds.slice(0, 10), components: [] });
       return;
     }
   }
@@ -203,6 +207,30 @@ export async function handleRedfingerButton(interaction: MessageComponentInterac
       components: [],
     });
     await logoutLogin(interaction.client, login, interaction.user.id);
+    return;
+  }
+
+  // ===== Verifikasi perangkat baru Redfinger (args[0] = id tugas) =====
+  if (base === CustomId.RF_VSEND || base === CustomId.RF_VCODE || base === CustomId.RF_VCANCEL) {
+    const taskId = args[0] ?? '';
+    if (base === CustomId.RF_VCODE) {
+      if (!isWaiting(taskId, 'code')) {
+        await interaction.reply({ embeds: [errorEmbed('Sesi verifikasi ini sudah tidak aktif. Ulangi lewat **Retry Tasks**.')], ephemeral: true });
+        return;
+      }
+      await interaction.showModal(buildRedfingerVerifyCodeModal(taskId));
+      return;
+    }
+    if (base === CustomId.RF_VSEND) {
+      const ok = approveSend(taskId);
+      await interaction.update({
+        embeds: [ok ? baseEmbed().setDescription('📧 Meminta Redfinger mengirim kode verifikasi ke email... tunggu sebentar.') : errorEmbed('Sesi verifikasi ini sudah tidak aktif. Ulangi lewat **Retry Tasks**.')],
+        components: [],
+      });
+      return;
+    }
+    cancelVerification(taskId);
+    await interaction.update({ embeds: [successEmbed('Verifikasi dibatalkan.')], components: [] });
     return;
   }
 
@@ -381,8 +409,8 @@ export async function handleRedfingerSelect(interaction: StringSelectMenuInterac
     // Sinkron sekarang (mis. setelah redeem manual di Redfinger)
     await interaction.deferReply({ ephemeral: true });
     await interaction.editReply({ embeds: [baseEmbed().setDescription(`⏳ Login & sinkron ${maskIdentifier(login.email)}... (sekitar 30-60 detik)`)] });
-    const summary = await runLoginSync(interaction.client, login.id, interaction.user.id);
-    await interaction.editReply({ embeds: [summary ? await syncResultEmbed(summary) : errorEmbed('Sinkron gagal dijalankan. Cek log bot.')] });
+    const summary = await runLoginSync(interaction.client, login.id, interaction.user.id, { notify: (payload) => interaction.editReply(payload) });
+    await interaction.editReply({ embeds: [summary ? await syncResultEmbed(summary) : errorEmbed('Sinkron gagal dijalankan. Cek log bot.')], components: [] });
     return;
   }
 

@@ -250,7 +250,7 @@ export async function syncResultEmbed(summary: SyncSummary): Promise<EmbedBuilde
   const hints: Record<string, string> = {
     bad_credentials: 'Periksa lagi email & password, lalu tekan **Register** lagi dengan data yang benar.',
     needs_verification:
-      'Bot berhenti dan tidak mencoba melewati verifikasi. Login sekali secara manual di Redfinger (selesaikan CAPTCHA/OTP), lalu tekan **Retry Tasks**.',
+      'Tekan **Retry Tasks** di panel. Bot akan menampilkan tombol **Kirim Kode Verifikasi** lalu **Masukkan Kode**, dan kodenya Anda ambil dari email akun Redfinger. Bot tidak pernah melewati verifikasi sendiri.',
     needs_calibration:
       'Struktur halaman sudah disimpan di server (folder `data/redfinger-diag`) supaya pembacaan device bisa disesuaikan. Kalau akun memang belum punya device, abaikan.',
     failed: 'Tekan **Retry Tasks** untuk mencoba lagi. Kalau terus gagal, cek log bot.',

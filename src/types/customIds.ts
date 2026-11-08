@@ -84,6 +84,12 @@ export const CustomId = {
   RF_PICK_SYNC: 'rf_pick_sync', // select login -> sinkron sekarang
   RF_LOGOUT_CONFIRM: 'rf_logout_confirm', // rf_logout_confirm:<loginId>:<discordId peminta>
   RF_MODAL_REGISTER: 'rf_modal_register',
+  // Verifikasi perangkat baru Redfinger (argumen = id tugas)
+  RF_VSEND: 'rf_vsend', // admin setuju kode dikirim ke email
+  RF_VCODE: 'rf_vcode', // buka modal input kode
+  RF_VCANCEL: 'rf_vcancel',
+  RF_MODAL_VCODE: 'rf_modal_vcode',
+  RF_INPUT_VCODE: 'rf_input_vcode',
   RF_INPUT_EMAIL: 'rf_input_email',
 
   // Modal Redfinger

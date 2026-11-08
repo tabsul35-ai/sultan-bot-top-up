@@ -88,6 +88,22 @@ export function buildRedfingerRegisterModal(): ModalBuilder {
     .addComponents(row(email), row(password));
 }
 
+/** Kode verifikasi perangkat baru dari email Redfinger. */
+export function buildRedfingerVerifyCodeModal(taskId: string): ModalBuilder {
+  const code = new TextInputBuilder()
+    .setCustomId(CustomId.RF_INPUT_VCODE)
+    .setLabel('Kode verifikasi dari email Redfinger')
+    .setPlaceholder('contoh: 123456')
+    .setStyle(TextInputStyle.Short)
+    .setMinLength(4)
+    .setMaxLength(12)
+    .setRequired(true);
+  return new ModalBuilder()
+    .setCustomId(buildCustomId(CustomId.RF_MODAL_VCODE, taskId))
+    .setTitle('Verifikasi Perangkat Redfinger')
+    .addComponents(row(code));
+}
+
 /** /redfinger add - `startEpoch` (detik) dari opsi `mulai`, dibawa lewat customId. */
 export function buildRedfingerAddModal(startEpoch?: number): ModalBuilder {
   return new ModalBuilder()

@@ -273,19 +273,22 @@ enum RedfingerTaskStatus {
 // Kredensial login Redfinger yang didaftarkan admin lewat tombol Register. Password terenkripsi
 // AES-256-GCM (REDFINGER_ENCRYPTION_KEY) dan tidak pernah ditampilkan di Discord.
 model RedfingerLogin {
-  id                String               @id @default(cuid())
-  guildId           String
-  email             String
-  passwordEncrypted String
-  status            RedfingerLoginStatus @default(PENDING)
-  lastError         String?
-  lastSyncAt        DateTime?
-  deviceCount       Int                  @default(0)
-  createdById       String?
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
-  devices           RedfingerAccount[]
-  tasks             RedfingerTask[]
+  id                    String               @id @default(cuid())
+  guildId               String
+  email                 String
+  passwordEncrypted     String
+  // Identitas "perangkat" browser bot (cookie + localStorage, termasuk deviceLockCode Redfinger),
+  // terenkripsi. Disimpan setelah verifikasi perangkat baru supaya login berikutnya tidak diminta verifikasi lagi.
+  browserStateEncrypted String?
+  status                RedfingerLoginStatus @default(PENDING)
+  lastError             String?
+  lastSyncAt            DateTime?
+  deviceCount           Int                  @default(0)
+  createdById           String?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  devices               RedfingerAccount[]
+  tasks                 RedfingerTask[]
 
   @@unique([guildId, email])
 }
