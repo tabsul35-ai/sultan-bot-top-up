@@ -16,6 +16,7 @@ import { handlePaymentVerify } from '../buttons/paymentVerify';
 import { handlePaymentReject } from '../buttons/paymentReject';
 import { handleOrderMarkCompleted } from '../buttons/orderMarkCompleted';
 import { handleVerify } from '../buttons/verify';
+import { handleRedfingerButton, handleRedfingerSelect } from '../buttons/redfinger';
 
 // Select menus
 import { handleRobuxAmountSelect } from '../selectMenus/handleRobuxAmountSelect';
@@ -25,9 +26,16 @@ import { handlePanelRobuxSelect } from '../selectMenus/handlePanelRobuxSelect';
 import { handleRobloxUsernameSubmit } from '../modals/handleRobloxUsernameSubmit';
 import { handleRobuxCustomSubmit } from '../modals/handleRobuxCustomSubmit';
 import { handleRobloxAccountSubmit } from '../modals/handleRobloxAccountSubmit';
+import { handleRedfingerModalSubmit } from '../modals/handleRedfingerModals';
 
 export async function handleInteraction(interaction: Interaction) {
   try {
+    if (interaction.isAutocomplete()) {
+      const command = commands.find((c) => c.data.name === interaction.commandName);
+      if (command?.autocomplete) await command.autocomplete(interaction);
+      return;
+    }
+
     if (interaction.isChatInputCommand()) {
       const command = commands.find((c) => c.data.name === interaction.commandName);
       if (!command) return;
@@ -37,6 +45,11 @@ export async function handleInteraction(interaction: Interaction) {
 
     if (interaction.isButton()) {
       const { base, orderId, args } = parseCustomId(interaction.customId);
+
+      // Semua tombol fitur Redfinger diawali "rf_" (lihat buttons/redfinger.ts)
+      if (base.startsWith('rf_')) {
+        return void (await handleRedfingerButton(interaction, base, args));
+      }
 
       switch (base) {
         case CustomId.BUY_ROBUX:
@@ -79,6 +92,9 @@ export async function handleInteraction(interaction: Interaction) {
     }
 
     if (interaction.isStringSelectMenu()) {
+      if (interaction.customId === CustomId.RF_PANEL_SELECT) {
+        return void (await handleRedfingerSelect(interaction));
+      }
       if (interaction.customId === CustomId.SELECT_ROBUX_AMOUNT) {
         return void (await handleRobuxAmountSelect(interaction));
       }
@@ -89,7 +105,10 @@ export async function handleInteraction(interaction: Interaction) {
     }
 
     if (interaction.isModalSubmit()) {
-      const { base } = parseCustomId(interaction.customId);
+      const { base, args } = parseCustomId(interaction.customId);
+      if (base.startsWith('rf_')) {
+        return void (await handleRedfingerModalSubmit(interaction, base, args));
+      }
       if (base === CustomId.MODAL_ROBLOX_USERNAME) {
         return void (await handleRobloxUsernameSubmit(interaction));
       }

@@ -47,3 +47,15 @@ export async function getPaymentSetting(guildId: string) {
   }
   return setting;
 }
+
+/**
+ * Ambil RedfingerSetting satu server (channel admin/log & role untuk fitur /redfinger).
+ * Membuat baris default jika belum ada.
+ */
+export async function getRedfingerSetting(guildId: string) {
+  let setting = await prisma.redfingerSetting.findUnique({ where: { guildId } });
+  if (!setting) {
+    setting = await prisma.redfingerSetting.create({ data: { guildId } });
+  }
+  return setting;
+}

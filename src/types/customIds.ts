@@ -48,6 +48,40 @@ export const CustomId = {
 
   // Panel verifikasi member (dipasang lewat /setup-verify)
   VERIFY_BUTTON: 'verify_button',
+
+  // ===== Manajemen akun Redfinger (/redfinger) - semua diawali "rf_", argumen = id akun =====
+  RF_RENEW: 'rf_renew', // mulai renew (dari notifikasi pengingat)
+  RF_REPLACE: 'rf_replace', // mulai replace (dari notifikasi pengingat)
+  RF_DONE: 'rf_done', // tandai renew selesai -> modal tanggal jatuh tempo baru
+  RF_FAIL: 'rf_fail', // tandai renew/replace gagal
+  RF_CANCEL: 'rf_cancel', // batalkan proses renew/replace yang sedang berjalan
+  RF_RECHECK: 'rf_recheck', // jalankan ulang job browser (setelah admin verifikasi manual)
+  RF_REPLACE_FORM: 'rf_replace_form', // buka modal data akun pengganti
+  RF_DELETE_CONFIRM: 'rf_delete_confirm', // rf_delete_confirm:<id>:<discordId peminta>
+  RF_DELETE_CANCEL: 'rf_delete_cancel',
+  RF_DELETE: 'rf_delete', // minta konfirmasi hapus (dari menu kelola panel)
+  RF_DISABLE: 'rf_disable',
+  RF_ENABLE: 'rf_enable',
+  RF_PASSWORD: 'rf_password', // buka modal ganti/hapus password
+
+  // Panel Redfinger permanen di channel (/redfinger panel) - tanpa argumen
+  RF_PANEL_ADD: 'rf_panel_add',
+  RF_PANEL_LIST: 'rf_panel_list',
+  RF_PANEL_MANAGE: 'rf_panel_manage',
+  RF_PANEL_SETUP: 'rf_panel_setup',
+  RF_PANEL_SELECT: 'rf_panel_select', // select menu pilih akun
+
+  // Modal Redfinger
+  RF_MODAL_ADD: 'rf_modal_add', // rf_modal_add[:YYYY-MM-DD tanggal mulai]
+  RF_MODAL_DUE: 'rf_modal_due', // rf_modal_due:<id>
+  RF_MODAL_REPLACE: 'rf_modal_replace', // rf_modal_replace:<id akun lama>
+  RF_MODAL_PASSWORD: 'rf_modal_password', // rf_modal_password:<id>
+  RF_INPUT_LABEL: 'rf_input_label',
+  RF_INPUT_USERNAME: 'rf_input_username',
+  RF_INPUT_PASSWORD: 'rf_input_password',
+  RF_INPUT_INSTANCE: 'rf_input_instance',
+  RF_INPUT_DUE: 'rf_input_due',
+  RF_INPUT_NOTES: 'rf_input_notes',
 } as const;
 
 // Helper untuk custom_id yang perlu menyisipkan argumen, contoh: "payment_verify:cksdf123" atau "order_confirm:1000:160000"

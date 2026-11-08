@@ -1,4 +1,4 @@
-import { ChatInputCommandInteraction, SlashCommandBuilder, SlashCommandSubcommandsOnlyBuilder } from 'discord.js';
+import { AutocompleteInteraction, ChatInputCommandInteraction, SlashCommandBuilder, SlashCommandSubcommandsOnlyBuilder } from 'discord.js';
 import * as buy from './buy';
 import * as pay from './pay';
 import * as history from './history';
@@ -8,10 +8,12 @@ import * as panel from './panel';
 import * as setupVerify from './setup-verify';
 import * as lockdown from './lockdown';
 import * as unlock from './unlock';
+import * as redfinger from './redfinger';
 
 export interface BotCommand {
   data: SlashCommandBuilder | SlashCommandSubcommandsOnlyBuilder | any;
   execute: (interaction: ChatInputCommandInteraction) => Promise<void>;
+  autocomplete?: (interaction: AutocompleteInteraction) => Promise<void>;
 }
 
-export const commands: BotCommand[] = [buy, pay, history, ping, admin, panel, setupVerify, lockdown, unlock];
+export const commands: BotCommand[] = [buy, pay, history, ping, admin, panel, setupVerify, lockdown, unlock, redfinger];

@@ -199,6 +199,56 @@ Development (`npm run dev`) mati begitu Anda menutup terminal/laptop. Untuk bot 
 
 ---
 
+## Manajemen Akun Redfinger (`/redfinger`)
+
+Fitur admin untuk mencatat akun/instance cloud phone Redfinger, memantau masa aktif, mengirim
+pengingat, dan menjalankan alur renew/replace. Redfinger tidak punya API yang dipakai di sini, jadi
+data dimasukkan admin secara manual.
+
+**Setup sekali:**
+1. Jalankan migration: `npx prisma migrate deploy` (sudah termasuk di `scripts/update.sh`).
+2. (Opsional, untuk menyimpan password) isi `REDFINGER_ENCRYPTION_KEY` di `.env`, lihat `.env.example`.
+3. Di Discord: `/redfinger setup admin_channel:#redfinger-admin log_channel:#redfinger-log role:@Operator`
+   (`role` = role tambahan yang boleh memakai `/redfinger`. Admin server selalu boleh.)
+
+**Command (semua balasan hanya terlihat oleh admin yang menjalankan):**
+
+| Command | Fungsi |
+|---|---|
+| `/redfinger add [mulai]` | Form: label, email/username, password (opsional, terenkripsi), instance ID, jatuh tempo |
+| `/redfinger list [status]` | Daftar akun + status + sisa masa aktif |
+| `/redfinger detail id` | Detail aman (tanpa password), job terakhir, 5 audit terakhir |
+| `/redfinger edit id ...` | Ubah field; `-` untuk mengosongkan; `ganti_password:True` membuka form password |
+| `/redfinger renew id [mode]` | Status → `renewing`; manual = checklist + tombol Tandai Selesai; browser = job Playwright |
+| `/redfinger replace id` | Status → `replacing`; tombol **Isi Data Pengganti** → akun baru dibuat, akun lama `replaced` |
+| `/redfinger disable/enable id` | Berhenti/lanjut dipantau |
+| `/redfinger delete id` | Hapus permanen setelah tombol konfirmasi (audit log tetap disimpan) |
+| `/redfinger panel [bersihkan]` | Pasang panel tombol permanen di channel ini (Tambah / Daftar / Kelola / Pengaturan) |
+| `/redfinger setup` | Atur/lihat channel, role, dan konfigurasi env |
+
+Opsi `id` mendukung autocomplete (ketik kode `RF-…`, label, atau instance ID).
+
+**Panel:** jalankan `/redfinger panel` di channel khusus admin. Panel tidak memuat data akun (tidak pernah basi);
+semua isi muncul sebagai balasan yang hanya terlihat oleh penekan tombol, dan setiap tombol mengecek izin admin Redfinger.
+**Kelola Akun** menampilkan dropdown 25 akun dengan jatuh tempo terdekat → detail + tombol Renew, Replace, Tandai Selesai,
+Nonaktifkan/Aktifkan, Ganti Password, Hapus. Menjalankan `/redfinger panel` lagi otomatis menghapus panel lama di channel itu.
+
+**Status:** `active` → `expiring` (masuk H-terbesar) → `expired`; `renewing`, `replacing`, `replaced`, `failed`, `disabled`.
+
+**Pengingat:** scheduler mengecek tiap `REDFINGER_CHECK_INTERVAL_MINUTES` dan mengirim notifikasi
+ke channel admin pada `REDFINGER_REMINDER_DAYS` (default H-7, H-3, H-1) dan saat sudah habis, dengan tombol
+**Renew / Replace / Tandai Selesai**. Tiap tahap hanya dikirim sekali per jatuh tempo; setelah renew
+(jatuh tempo berubah) siklus pengingat mulai lagi.
+
+**Otomasi browser (opsional):** `npm i playwright && npx playwright install --with-deps chromium`, lalu set
+`REDFINGER_BROWSER_ENABLED=true`, `REDFINGER_LOGIN_URL`, dan `REDFINGER_DEVICES_URL`. Job hanya login dan
+membaca masa aktif device. Kalau tanggalnya sudah bertambah, renew ditandai berhasil. Bot **tidak**
+melakukan pembayaran dan **tidak** mencoba melewati CAPTCHA/OTP/MFA. Jika muncul verifikasi, job berstatus
+"perlu verifikasi manual" dan admin diberi tahu. Selector halaman ada di
+`src/services/redfinger/browserAutomation.ts` dan **perlu disesuaikan** dengan tampilan web Redfinger yang asli.
+
+---
+
 ## Yang belum ada di versi ini (dari PRD lengkap)
 
 Fokus versi ini hanya **Robux + ticket + payment manual**. Belum diimplementasikan:

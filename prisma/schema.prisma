@@ -8,13 +8,13 @@ datasource db {
 }
 
 enum OrderStatus {
-  PENDING          // baru dibuat, menunggu konfirmasi user
-  WAITING_PAYMENT  // ticket dibuat, menunggu bukti bayar
-  PAID             // staff sudah verifikasi bukti bayar
-  PROCESSING       // robux sedang dikirim manual oleh admin
-  COMPLETED        // robux sudah terkirim
-  CANCELLED        // dibatalkan user/staff
-  REJECTED         // bukti pembayaran ditolak
+  PENDING // baru dibuat, menunggu konfirmasi user
+  WAITING_PAYMENT // ticket dibuat, menunggu bukti bayar
+  PAID // staff sudah verifikasi bukti bayar
+  PROCESSING // robux sedang dikirim manual oleh admin
+  COMPLETED // robux sudah terkirim
+  CANCELLED // dibatalkan user/staff
+  REJECTED // bukti pembayaran ditolak
 }
 
 enum ProductType {
@@ -23,34 +23,34 @@ enum ProductType {
 }
 
 model User {
-  id              String   @id @default(cuid())
-  discordId       String   @unique
-  robloxUsername  String?
-  createdAt       DateTime @default(now())
+  id             String   @id @default(cuid())
+  discordId      String   @unique
+  robloxUsername String?
+  createdAt      DateTime @default(now())
 }
 
 // Semua data toko (order, setting, stok) di-scope per Discord server (guildId) - bot ini
 // bisa dipasang di beberapa server sekaligus, masing-masing jadi toko yang sepenuhnya
 // independen (harga, pembayaran, staff, stok Robux sendiri-sendiri).
 model Order {
-  id               String        @id @default(cuid())
-  guildId          String        // server Discord tempat order ini dibuat
-  orderCode        String        @unique // format ST-XXXXXX
-  discordId        String
-  productType      ProductType   @default(ROBUX)
-  robloxUsername   String?
-  robuxAmount      Int?
-  price            Int           // dalam rupiah
-  status           OrderStatus   @default(PENDING)
-  ticketChannelId  String?       @unique
-  paymentProofUrl  String?
-  verifiedBy       String?
-  rejectedReason   String?
-  createdAt        DateTime      @default(now())
-  paidAt           DateTime?
-  completedAt      DateTime?
-  cancelledAt      DateTime?
-  logs             TransactionLog[]
+  id              String           @id @default(cuid())
+  guildId         String // server Discord tempat order ini dibuat
+  orderCode       String           @unique // format ST-XXXXXX
+  discordId       String
+  productType     ProductType      @default(ROBUX)
+  robloxUsername  String?
+  robuxAmount     Int?
+  price           Int // dalam rupiah
+  status          OrderStatus      @default(PENDING)
+  ticketChannelId String?          @unique
+  paymentProofUrl String?
+  verifiedBy      String?
+  rejectedReason  String?
+  createdAt       DateTime         @default(now())
+  paidAt          DateTime?
+  completedAt     DateTime?
+  cancelledAt     DateTime?
+  logs            TransactionLog[]
 
   @@index([discordId])
   @@index([status])
@@ -61,15 +61,15 @@ model Order {
 // Satu baris per server Discord (guildId) - info pembayaran manual toko itu, ditampilkan lewat /pay
 model PaymentSetting {
   guildId         String   @id
-  qris            String?  // caption/nomor QRIS, atau catatan "lihat lampiran"
-  qrisImageUrl    String?  // link gambar QRIS (opsional)
+  qris            String? // caption/nomor QRIS, atau catatan "lihat lampiran"
+  qrisImageUrl    String? // link gambar QRIS (opsional)
   dana            String?
   ovo             String?
   gopay           String?
   bankName        String?
   bankAccount     String?
   bankAccountName String?
-  note            String?  // instruksi tambahan
+  note            String? // instruksi tambahan
   updatedAt       DateTime @updatedAt
 }
 
@@ -79,8 +79,8 @@ model BotSetting {
   robuxPricePerUnit Int      @default(160) // rupiah per 1 Robux
   staffRoleId       String?
   adminRoleId       String?
-  verifiedRoleId    String?  // role yang diberikan lewat tombol verifikasi member
-  verifyChannelId   String?  // channel tempat panel verifikasi dipasang (tetap publik saat /lockdown)
+  verifiedRoleId    String? // role yang diberikan lewat tombol verifikasi member
+  verifyChannelId   String? // channel tempat panel verifikasi dipasang (tetap publik saat /lockdown)
   logChannelId      String?
   orderCategoryId   String?
   updatedAt         DateTime @updatedAt
@@ -88,10 +88,10 @@ model BotSetting {
   // Stok Robux live toko ini - ringkasan gabungan dari semua RobloxAccount aktif milik guildId
   // ini (lihat services/roblox). Field robloxCookieOverride sudah tidak dipakai (digantikan
   // tabel RobloxAccount), dibiarkan ada di database lama tapi tidak diisi/dibaca kode baru.
-  robuxStockCache      Int?      // total saldo dari semua akun aktif toko ini, hasil polling terakhir
+  robuxStockCache      Int? // total saldo dari semua akun aktif toko ini, hasil polling terakhir
   robuxStockUpdatedAt  DateTime? // kapan robuxStockCache terakhir berhasil diperbarui
-  robuxStockError      String?   // ringkasan akun yang gagal dipoll (mis. cookie kedaluwarsa), null kalau semua sehat
-  robloxCookieOverride String?   // @deprecated - sudah tidak dipakai, lihat RobloxAccount
+  robuxStockError      String? // ringkasan akun yang gagal dipoll (mis. cookie kedaluwarsa), null kalau semua sehat
+  robloxCookieOverride String? // @deprecated - sudah tidak dipakai, lihat RobloxAccount
 }
 
 // Satu akun Roblox penjual milik satu toko (guildId), saldonya dijumlahkan jadi "stok live"
@@ -100,13 +100,13 @@ model BotSetting {
 // removerobloxaccount - tidak perlu edit .env.
 model RobloxAccount {
   id             String    @id @default(cuid())
-  guildId        String    // server Discord (toko) pemilik akun ini
-  label          String    // nama bebas dari admin untuk membedakan akun, mis. "Akun 1"
-  cookie         String    // .ROBLOSECURITY - SANGAT SENSITIF, setara password penuh akun ini
+  guildId        String // server Discord (toko) pemilik akun ini
+  label          String // nama bebas dari admin untuk membedakan akun, mis. "Akun 1"
+  cookie         String // .ROBLOSECURITY - SANGAT SENSITIF, setara password penuh akun ini
   active         Boolean   @default(true)
-  stockCache     Int?      // saldo Robux hasil polling terakhir yang berhasil untuk akun ini
+  stockCache     Int? // saldo Robux hasil polling terakhir yang berhasil untuk akun ini
   stockUpdatedAt DateTime?
-  stockError     String?   // pesan error polling terakhir untuk akun ini, null kalau sehat
+  stockError     String? // pesan error polling terakhir untuk akun ini, null kalau sehat
   createdAt      DateTime  @default(now())
 
   @@index([guildId, active])
@@ -114,14 +114,129 @@ model RobloxAccount {
 
 model TransactionLog {
   id        String   @id @default(cuid())
-  guildId   String?  // server Discord asal log ini (dipakai untuk alert yang tidak terikat ke satu order, mis. stok)
+  guildId   String? // server Discord asal log ini (dipakai untuk alert yang tidak terikat ke satu order, mis. stok)
   orderId   String?
   order     Order?   @relation(fields: [orderId], references: [id])
-  type      String   // NEW_ORDER, PAYMENT_VERIFIED, PAYMENT_REJECTED, ORDER_COMPLETED, ORDER_CANCELLED, ADMIN_ACTION
+  type      String // NEW_ORDER, PAYMENT_VERIFIED, PAYMENT_REJECTED, ORDER_COMPLETED, ORDER_CANCELLED, ADMIN_ACTION
   message   String
-  actorId   String?  // discordId yang melakukan aksi (staff/user)
+  actorId   String? // discordId yang melakukan aksi (staff/user)
   createdAt DateTime @default(now())
 
   @@index([orderId])
   @@index([guildId])
+}
+
+// ===================== MANAJEMEN AKUN REDFINGER =====================
+// Akun/instance cloud phone Redfinger yang didaftarkan admin secara manual lewat /redfinger.
+// Redfinger tidak punya API resmi yang dipakai di sini - bot hanya mengelola data, masa aktif,
+// pengingat, dan alur renew/replace. Otomasi browser (Playwright) opsional, lihat
+// services/redfinger/browserAutomation.ts. Semua data di-scope per server Discord (guildId).
+
+enum RedfingerStatus {
+  ACTIVE // masa aktif masih jauh
+  EXPIRING // masuk jendela pengingat (<= hari pengingat terbesar, mis. H-7)
+  RENEWING // proses perpanjangan sedang berjalan (manual / browser)
+  EXPIRED // jatuh tempo sudah lewat
+  REPLACING // sedang diganti dengan akun/instance lain
+  REPLACED // sudah digantikan akun lain (lihat replacedById) - tidak dipantau lagi
+  FAILED // renew/replace gagal - butuh tindakan admin
+  DISABLED // dinonaktifkan admin - tidak dipantau/diingatkan
+}
+
+enum RedfingerJobType {
+  RENEW
+  REPLACE
+}
+
+enum RedfingerJobMode {
+  MANUAL // admin menyelesaikan di Redfinger sendiri, bot hanya mencatat
+  BROWSER // dijalankan Playwright (opsional)
+}
+
+enum RedfingerJobStatus {
+  STARTED // dimulai
+  SUCCESS // berhasil
+  FAILED // gagal
+  NEEDS_VERIFICATION // perlu verifikasi/tindakan manual (CAPTCHA/OTP/pembayaran) - menunggu admin
+  CANCELLED // dibatalkan admin
+}
+
+model RedfingerAccount {
+  id                String              @id @default(cuid())
+  guildId           String // server Discord pemilik akun ini
+  code              String // ID pendek untuk command, format RF-XXXXX (unik per guild)
+  label             String // nama/label bebas dari admin
+  username          String? // email/username login Redfinger
+  passwordEncrypted String? // AES-256-GCM (kunci di env REDFINGER_ENCRYPTION_KEY) - TIDAK PERNAH ditampilkan
+  instanceId        String? // ID instance/device Redfinger
+  startDate         DateTime?
+  dueDate           DateTime // tanggal jatuh tempo / habis masa aktif
+  status            RedfingerStatus     @default(ACTIVE)
+  notes             String?
+  replacedById      String? // akun pengganti (diisi saat status REPLACED)
+  replacesId        String? // akun lama yang digantikan akun ini
+  createdById       String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  reminders         RedfingerReminder[]
+  jobs              RedfingerJob[]
+
+  @@unique([guildId, code])
+  @@index([guildId, status])
+  @@index([status, dueDate])
+}
+
+// Satu baris = satu tahap pengingat yang SUDAH dikirim untuk satu siklus jatuh tempo.
+// Unik per (akun, dueDate, stage) supaya tidak ada notifikasi ganda; saat dueDate berubah
+// (renew) siklus pengingat otomatis mulai dari awal lagi.
+model RedfingerReminder {
+  id        String           @id @default(cuid())
+  accountId String
+  account   RedfingerAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  dueDate   DateTime
+  stage     String // "D7", "D3", "D1", ... atau "EXPIRED"
+  sentAt    DateTime         @default(now())
+
+  @@unique([accountId, dueDate, stage])
+}
+
+model RedfingerJob {
+  id         String             @id @default(cuid())
+  guildId    String
+  accountId  String
+  account    RedfingerAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  type       RedfingerJobType
+  mode       RedfingerJobMode
+  status     RedfingerJobStatus @default(STARTED)
+  message    String?
+  actorId    String?
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+  finishedAt DateTime?
+
+  @@index([accountId, status])
+}
+
+// Audit log Redfinger - sengaja TANPA relasi ke RedfingerAccount supaya riwayat tetap ada
+// walau akunnya dihapus.
+model RedfingerAuditLog {
+  id        String   @id @default(cuid())
+  guildId   String
+  accountId String?
+  action    String // ADD, EDIT, RENEW_START, RENEW_SUCCESS, JOB_FAILED, REMINDER, DELETE, ...
+  message   String
+  actorId   String? // discordId admin, null = sistem (scheduler/job)
+  createdAt DateTime @default(now())
+
+  @@index([guildId, createdAt])
+  @@index([accountId])
+}
+
+// Satu baris per server Discord - pengaturan fitur Redfinger (lihat /redfinger setup)
+model RedfingerSetting {
+  guildId        String   @id
+  adminChannelId String? // channel tujuan pengingat & notifikasi (wajib supaya pengingat terkirim)
+  logChannelId   String? // channel audit log (opsional)
+  adminRoleId    String? // role tambahan yang boleh memakai /redfinger (selain Administrator/role admin toko)
+  updatedAt      DateTime @updatedAt
 }
