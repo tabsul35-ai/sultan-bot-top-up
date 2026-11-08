@@ -10,6 +10,7 @@ import { handleOrderCancelPrecheckout } from '../buttons/orderCancelPrecheckout'
 import { handleTicketPay } from '../buttons/ticketPay';
 import { handleTicketCallStaff } from '../buttons/ticketCallStaff';
 import { handleTicketCancel } from '../buttons/ticketCancel';
+import { handleTicketDone } from '../buttons/ticketDone';
 import { handleTicketClose } from '../buttons/ticketClose';
 import { handlePaymentVerify } from '../buttons/paymentVerify';
 import { handlePaymentReject } from '../buttons/paymentReject';
@@ -60,6 +61,8 @@ export async function handleInteraction(interaction: Interaction) {
           return void (await handleTicketCallStaff(interaction));
         case CustomId.TICKET_CANCEL:
           return void (await handleTicketCancel(interaction, orderId!));
+        case CustomId.TICKET_DONE:
+          return void (await handleTicketDone(interaction, orderId!));
         case CustomId.TICKET_CLOSE:
           return void (await handleTicketClose(interaction, orderId!));
         case CustomId.PAYMENT_VERIFY:

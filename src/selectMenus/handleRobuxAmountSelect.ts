@@ -22,10 +22,14 @@ export async function handleRobuxAmountSelect(interaction: StringSelectMenuInter
     return;
   }
 
+  // deferUpdate dulu: getBotSetting() bisa lambat saat Neon cold-start dan
+  // interaction.update() punya batas 3 detik yang sama.
+  await interaction.deferUpdate();
+
   const setting = await getBotSetting(interaction.guildId!);
 
   if (!hasEnoughStock(amount, setting)) {
-    await interaction.update({
+    await interaction.editReply({
       embeds: [
         errorEmbed(
           `Stok Robux saat ini tidak cukup untuk **${amount.toLocaleString('id-ID')} Robux** (tersisa **${(setting.robuxStockCache ?? 0).toLocaleString('id-ID')} Robux**). Pilih jumlah lebih kecil atau coba lagi nanti.`
@@ -38,5 +42,5 @@ export async function handleRobuxAmountSelect(interaction: StringSelectMenuInter
 
   const price = calculateRobuxPrice(amount, setting.robuxPricePerUnit);
 
-  await interaction.update(buildOrderConfirmView({ username, amount, price }));
+  await interaction.editReply(buildOrderConfirmView({ username, amount, price }));
 }

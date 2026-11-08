@@ -36,6 +36,7 @@ export const CustomId = {
   TICKET_PAY: 'ticket_pay',
   TICKET_CALL_STAFF: 'ticket_call_staff',
   TICKET_CANCEL: 'ticket_cancel',
+  TICKET_DONE: 'ticket_done', // staff: tandai pesanan selesai lalu tutup ticket
   TICKET_CLOSE: 'ticket_close',
 
   // Staff verification buttons (muncul di ticket setelah user upload bukti)

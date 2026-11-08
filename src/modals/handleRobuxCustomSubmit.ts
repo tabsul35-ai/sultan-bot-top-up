@@ -17,26 +17,28 @@ import { errorEmbed } from '../utils/embeds';
 const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,20}$/; // aturan username Roblox standar
 
 export async function handleRobuxCustomSubmit(interaction: ModalSubmitInteraction) {
+  // Defer dulu: langkah berikutnya menyentuh database (getActiveOrderForUser, getBotSetting)
+  // yang bisa lambat saat Neon cold-start. Tanpa defer, interaksi bisa kedaluwarsa (3 detik).
+  await interaction.deferReply({ ephemeral: true });
+
   const rawAmount = interaction.fields.getTextInputValue(CustomId.INPUT_ROBUX_AMOUNT).trim().replace(/[.,\s]/g, '');
   const rawUsername = interaction.fields.getTextInputValue(CustomId.INPUT_ROBLOX_USERNAME).trim();
 
   const amount = Number(rawAmount);
   if (!/^\d+$/.test(rawAmount) || !isAllowedRobuxAmount(amount)) {
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [
         errorEmbed(
           `Jumlah Robux tidak valid. Masukkan angka bulat antara ${ROBUX_CUSTOM_MIN.toLocaleString('id-ID')} dan ${ROBUX_CUSTOM_MAX.toLocaleString('id-ID')}.`
         ),
       ],
-      ephemeral: true,
     });
     return;
   }
 
   if (!USERNAME_REGEX.test(rawUsername)) {
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [errorEmbed('Username Roblox tidak valid. Gunakan 3-20 karakter huruf, angka, atau underscore.')],
-      ephemeral: true,
     });
     return;
   }
@@ -45,13 +47,12 @@ export async function handleRobuxCustomSubmit(interaction: ModalSubmitInteractio
   // nanti (pengiriman pakai username apa adanya). Kalau API Roblox lagi bermasalah, tidak diblokir.
   const usernameCheck = await checkRobloxUsername(rawUsername);
   if (usernameCheck.status === 'not_found') {
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [
         errorEmbed(
           `Username Roblox **${rawUsername}** tidak ditemukan di Roblox. Cek lagi ejaannya (buka roblox.com/users lalu cari nama itu) sebelum lanjut.`
         ),
       ],
-      ephemeral: true,
     });
     return;
   }
@@ -59,13 +60,12 @@ export async function handleRobuxCustomSubmit(interaction: ModalSubmitInteractio
 
   const activeOrder = await getActiveOrderForUser(interaction.user.id, interaction.guildId!);
   if (activeOrder) {
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [
         errorEmbed(
           `Anda masih memiliki order aktif (**${activeOrder.orderCode}**). Selesaikan atau batalkan order tersebut terlebih dahulu.`
         ),
       ],
-      ephemeral: true,
     });
     return;
   }
@@ -73,13 +73,12 @@ export async function handleRobuxCustomSubmit(interaction: ModalSubmitInteractio
   const setting = await getBotSetting(interaction.guildId!);
 
   if (!hasEnoughStock(amount, setting)) {
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [
         errorEmbed(
           `Stok Robux saat ini tidak cukup untuk **${amount.toLocaleString('id-ID')} Robux** (tersisa **${(setting.robuxStockCache ?? 0).toLocaleString('id-ID')} Robux**). Pilih jumlah lebih kecil atau coba lagi nanti.`
         ),
       ],
-      ephemeral: true,
     });
     return;
   }
@@ -88,8 +87,5 @@ export async function handleRobuxCustomSubmit(interaction: ModalSubmitInteractio
 
   const price = calculateRobuxPrice(amount, setting.robuxPricePerUnit);
 
-  await interaction.reply({
-    ...buildOrderConfirmView({ username, amount, price }),
-    ephemeral: true,
-  });
+  await interaction.editReply(buildOrderConfirmView({ username, amount, price }));
 }

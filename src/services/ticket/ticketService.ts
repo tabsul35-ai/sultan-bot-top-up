@@ -116,6 +116,11 @@ export async function createRobuxTicket(guild: Guild, order: Order, robloxUserna
       .setEmoji('❌')
       .setStyle(ButtonStyle.Danger),
     new ButtonBuilder()
+      .setCustomId(buildCustomId(CustomId.TICKET_DONE, order.id))
+      .setLabel('Selesai')
+      .setEmoji('✅')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
       .setCustomId(buildCustomId(CustomId.TICKET_CLOSE, order.id))
       .setLabel('Tutup Ticket')
       .setEmoji('🔒')
