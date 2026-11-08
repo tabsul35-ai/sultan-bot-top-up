@@ -52,15 +52,15 @@ export const redfingerConfig = {
   checkIntervalMinutes: intEnv('REDFINGER_CHECK_INTERVAL_MINUTES', 30, 1, 1440),
   // Zona waktu input/tampilan tanggal (Indonesia tanpa DST: WIB=7, WITA=8, WIT=9).
   utcOffsetHours: intEnv('REDFINGER_UTC_OFFSET_HOURS', 7, -12, 14),
+  // Sinkron ulang otomatis akun login (Register) tiap N jam supaya masa aktif selalu terbaru. 0 = mati.
+  syncIntervalHours: intEnv('REDFINGER_SYNC_INTERVAL_HOURS', 12, 0, 168),
   // Mode default alur renew: "manual" (checklist untuk admin) atau "browser" (Playwright, opsional).
   renewMode: (process.env.REDFINGER_RENEW_MODE === 'browser' ? 'browser' : 'manual') as 'manual' | 'browser',
   browser: {
     // Otomasi browser hanya aktif jika ini "true" DAN paket `playwright` terpasang.
     enabled: process.env.REDFINGER_BROWSER_ENABLED === 'true',
     headless: process.env.REDFINGER_BROWSER_HEADLESS !== 'false',
-    timeoutMs: intEnv('REDFINGER_BROWSER_TIMEOUT_MS', 90_000, 10_000, 600_000),
-    loginUrl: process.env.REDFINGER_LOGIN_URL || '',
-    devicesUrl: process.env.REDFINGER_DEVICES_URL || '',
+    timeoutMs: intEnv('REDFINGER_BROWSER_TIMEOUT_MS', 120_000, 10_000, 600_000),
   },
 };
 

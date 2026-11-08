@@ -2,7 +2,10 @@ import { GuildMember, ModalSubmitInteraction } from 'discord.js';
 import { CustomId } from '../types/customIds';
 import { prisma } from '../database/prisma';
 import { isRedfingerAdmin } from '../utils/permissions';
-import { errorEmbed, successEmbed } from '../utils/embeds';
+import { baseEmbed, errorEmbed, successEmbed } from '../utils/embeds';
+import { maskIdentifier } from '../services/redfinger/accountService';
+import { runLoginSync, upsertLogin } from '../services/redfinger/loginService';
+import { syncResultEmbed } from '../services/redfinger/views';
 import { BRAND } from '../config/config';
 import { buildAccountEmbed, createAccount, findAccount, timeBasedStatus } from '../services/redfinger/accountService';
 import { encryptSecret, isEncryptionConfigured } from '../services/redfinger/crypto';
@@ -57,6 +60,32 @@ export async function handleRedfingerModalSubmit(interaction: ModalSubmitInterac
 
   await interaction.deferReply({ ephemeral: true });
   const actorId = interaction.user.id;
+
+  // ===== Register akun Redfinger: simpan kredensial, login, sinkron device =====
+  if (base === CustomId.RF_MODAL_REGISTER) {
+    const email = interaction.fields.getTextInputValue(CustomId.RF_INPUT_EMAIL);
+    const password = interaction.fields.getTextInputValue(CustomId.RF_INPUT_PASSWORD);
+    const saved = await upsertLogin(guildId, email, password, actorId);
+    if ('error' in saved) {
+      await interaction.editReply({ embeds: [errorEmbed(saved.error)] });
+      return;
+    }
+    await logRedfingerAction(interaction.client, {
+      guildId,
+      action: 'REGISTER',
+      title: '🔐 Register akun Redfinger',
+      message: `Login ${maskIdentifier(saved.login.email)} didaftarkan (password terenkripsi). Memulai login & sinkron device.`,
+      actorId,
+    });
+    await interaction.editReply({
+      embeds: [baseEmbed().setDescription(`⏳ Login ke Redfinger sebagai **${maskIdentifier(saved.login.email)}** & membaca daftar device... (sekitar 30-60 detik)`)],
+    });
+
+    // Sinkron pertama juga mencatat struktur halaman Redeem/Renew (read-only) untuk kalibrasi.
+    const summary = await runLoginSync(interaction.client, saved.login.id, actorId, { collectPages: !saved.login.lastSyncAt });
+    await interaction.editReply({ embeds: [summary ? await syncResultEmbed(summary) : errorEmbed('Sinkron gagal dijalankan. Cek log bot.')] });
+    return;
+  }
 
   // ===== Tambah akun baru =====
   if (base === CustomId.RF_MODAL_ADD) {

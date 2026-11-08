@@ -4,7 +4,9 @@ import { getRedfingerSetting, prisma } from '../../database/prisma';
 import { BRAND, redfingerConfig } from '../../config/config';
 import { baseEmbed, errorEmbed } from '../../utils/embeds';
 import { CustomId, buildCustomId } from '../../types/customIds';
-import { STATUS_META, accountListLine, buildAccountEmbed, daysLeftText } from './accountService';
+import { RedfingerLogin } from '@prisma/client';
+import { STATUS_META, accountListLine, buildAccountEmbed, daysLeftText, maskIdentifier } from './accountService';
+import type { SyncSummary } from './loginService';
 import { browserAutomationStatus } from './browserAutomation';
 import { isEncryptionConfigured } from './crypto';
 import { tzLabel } from './dates';
@@ -117,18 +119,24 @@ export function deleteConfirmMessage(account: RedfingerAccount, actorId: string)
   return { embeds: [embed], components: [buttons] };
 }
 
-/** Dropdown pilih akun untuk tombol "Kelola Akun" di panel (maks 25 akun, jatuh tempo terdekat dulu). */
-export async function buildAccountPicker(guildId: string) {
+/**
+ * Dropdown pilih device (maks 25, jatuh tempo terdekat dulu). Default untuk "Kelola Device";
+ * dipakai juga untuk Renew/Replace dari panel dengan customId & filter status berbeda.
+ */
+export async function buildAccountPicker(
+  guildId: string,
+  opts: { customId?: string; placeholder?: string; excludeStatuses?: RedfingerStatus[] } = {}
+) {
   const accounts = await prisma.redfingerAccount.findMany({
-    where: { guildId, status: { not: 'REPLACED' } },
+    where: { guildId, status: { notIn: opts.excludeStatuses ?? ['REPLACED'] } },
     orderBy: { dueDate: 'asc' },
   });
   if (accounts.length === 0) return null;
 
   const shown = accounts.slice(0, 25);
   const select = new StringSelectMenuBuilder()
-    .setCustomId(CustomId.RF_PANEL_SELECT)
-    .setPlaceholder('Pilih akun yang ingin dikelola...')
+    .setCustomId(opts.customId ?? CustomId.RF_PANEL_SELECT)
+    .setPlaceholder(opts.placeholder ?? 'Pilih device yang ingin dikelola...')
     .addOptions(
       shown.map((a) => ({
         label: `${a.code} · ${a.label}`.slice(0, 100),
@@ -170,4 +178,85 @@ export function manageButtons(account: RedfingerAccount): ActionRowBuilder<Butto
   );
 
   return [main, other];
+}
+
+const LOGIN_STATUS_TEXT: Record<RedfingerLogin['status'], string> = {
+  PENDING: '⏳ belum dicoba',
+  OK: '🟢 OK',
+  BAD_CREDENTIALS: '🔴 email/password ditolak',
+  NEEDS_VERIFICATION: '🛂 perlu verifikasi manual',
+  FAILED: '❗ gagal',
+};
+
+/** Dropdown pilih akun login (untuk Logout / Sinkron sekarang). */
+export async function buildLoginPicker(guildId: string, customId: string, placeholder: string) {
+  const logins = await prisma.redfingerLogin.findMany({ where: { guildId }, orderBy: { createdAt: 'asc' }, take: 25 });
+  if (logins.length === 0) return null;
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(customId)
+    .setPlaceholder(placeholder)
+    .addOptions(
+      logins.map((l) => ({
+        label: maskIdentifier(l.email).slice(0, 100),
+        description: `${LOGIN_STATUS_TEXT[l.status]} · ${l.deviceCount} device`.slice(0, 100),
+        value: l.id,
+      }))
+    );
+  return { components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select)] };
+}
+
+/** Ringkasan akun login untuk "Daftar Device". */
+export async function buildLoginsEmbed(guildId: string): Promise<EmbedBuilder | null> {
+  const logins = await prisma.redfingerLogin.findMany({ where: { guildId }, orderBy: { createdAt: 'asc' } });
+  if (logins.length === 0) return null;
+  return baseEmbed()
+    .setTitle(`🔐 Akun Login Redfinger (${logins.length})`)
+    .setDescription(
+      logins
+        .map(
+          (l) =>
+            `**${maskIdentifier(l.email)}** — ${LOGIN_STATUS_TEXT[l.status]} · ${l.deviceCount} device · sinkron ${
+              l.lastSyncAt ? `<t:${Math.floor(l.lastSyncAt.getTime() / 1000)}:R>` : '-'
+            }${l.lastError && l.status !== 'OK' ? `\n  ↳ ${l.lastError.slice(0, 150)}` : ''}`
+        )
+        .join('\n')
+        .slice(0, 4000)
+    );
+}
+
+/** Hasil Register / sinkron untuk ditampilkan ke admin (ephemeral). */
+export async function syncResultEmbed(summary: SyncSummary): Promise<EmbedBuilder> {
+  const { result, login } = summary;
+  const who = maskIdentifier(login.email);
+
+  if (result.kind === 'ok') {
+    const devices = await prisma.redfingerAccount.findMany({ where: { loginId: login.id }, orderBy: { dueDate: 'asc' } });
+    return baseEmbed()
+      .setColor(BRAND.successColor)
+      .setTitle(`✅ Login berhasil — ${who}`)
+      .setDescription(
+        `${result.devices.length} device tersinkron (**${summary.created.length}** baru, **${summary.updated.length}** berubah).\n\n` +
+          devices.map(accountListLine).join('\n').slice(0, 3500)
+      )
+      .setFooter({ text: 'Masa aktif diambil langsung dari Redfinger · pengingat berjalan otomatis' });
+  }
+
+  const titles: Record<string, string> = {
+    bad_credentials: '🔴 Email/password ditolak Redfinger',
+    needs_verification: '🛂 Redfinger meminta verifikasi manual',
+    needs_calibration: '🟡 Login berhasil, device belum terbaca',
+    failed: '❗ Gagal',
+  };
+  const hints: Record<string, string> = {
+    bad_credentials: 'Periksa lagi email & password, lalu tekan **Register** lagi dengan data yang benar.',
+    needs_verification:
+      'Bot berhenti dan tidak mencoba melewati verifikasi. Login sekali secara manual di Redfinger (selesaikan CAPTCHA/OTP), lalu tekan **Retry Tasks**.',
+    needs_calibration:
+      'Struktur halaman sudah disimpan di server (folder `data/redfinger-diag`) supaya pembacaan device bisa disesuaikan. Kalau akun memang belum punya device, abaikan.',
+    failed: 'Tekan **Retry Tasks** untuk mencoba lagi. Kalau terus gagal, cek log bot.',
+  };
+  return baseEmbed()
+    .setColor(result.kind === 'needs_calibration' || result.kind === 'needs_verification' ? BRAND.pendingColor : BRAND.errorColor)
+    .setTitle(`${titles[result.kind]} — ${who}`)
+    .setDescription(`${result.message}\n\n${hints[result.kind]}`);
 }

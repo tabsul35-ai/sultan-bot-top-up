@@ -9,7 +9,8 @@ import { dateInputHint, parseDateInput } from '../services/redfinger/dates';
 import { logRedfingerAction } from '../services/redfinger/notify';
 import { setAccountDisabled, startRenew, startReplace } from '../services/redfinger/workflow';
 import { buildDetailEmbed, buildListEmbed, buildSetupEmbed, deleteConfirmMessage } from '../services/redfinger/views';
-import { PANEL_REDFINGER_TITLE, buildRedfingerPanel } from '../panels/redfingerPanel';
+import { PANEL_REDFINGER_TITLE, PANEL_REDFINGER_TITLE_OLD, buildRedfingerPanel } from '../panels/redfingerPanel';
+import { managerStats } from '../services/redfinger/loginService';
 import { tidyPanelChannel } from '../utils/channelPanel';
 import { buildRedfingerAddModal, buildRedfingerPasswordModal } from '../modals/redfingerModals';
 import { renewStartedReply, replaceStartedReply } from '../buttons/redfinger';
@@ -65,7 +66,7 @@ export const data = new SlashCommandBuilder()
   .addSubcommand((sub) =>
     sub
       .setName('panel')
-      .setDescription('Pasang panel tombol Redfinger permanen di channel ini')
+      .setDescription('Pasang panel Redfinger Manager (Register/Redeem/Replace/Renew/Logout) di channel ini')
       .addBooleanOption((opt) =>
         opt.setName('bersihkan').setDescription('Hapus semua pesan lain di channel ini lebih dulu (maks 100, umur < 14 hari)').setRequired(false)
       )
@@ -169,7 +170,9 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       panelTitle: PANEL_REDFINGER_TITLE,
       bersihkan: interaction.options.getBoolean('bersihkan') ?? false,
     });
-    await channel.send(buildRedfingerPanel());
+    // Panel versi lama (judul berbeda) ikut dibersihkan.
+    await tidyPanelChannel(channel, { botId: client.user.id, panelTitle: PANEL_REDFINGER_TITLE_OLD, bersihkan: false });
+    await channel.send(buildRedfingerPanel(await managerStats(guildId)));
 
     // Panel aman dilihat siapa saja (tombol mengecek izin, balasan ephemeral), tapi lebih rapi di channel khusus admin.
     const everyoneCanSee = channel.permissionsFor(channel.guild.roles.everyone)?.has('ViewChannel') ?? false;

@@ -71,6 +71,21 @@ export const CustomId = {
   RF_PANEL_SETUP: 'rf_panel_setup',
   RF_PANEL_SELECT: 'rf_panel_select', // select menu pilih akun
 
+  // Redfinger Manager (panel baru): login akun Redfinger + aksi per device
+  RF_PANEL_REGISTER: 'rf_panel_register',
+  RF_PANEL_REDEEM: 'rf_panel_redeem',
+  RF_PANEL_REPLACE: 'rf_panel_replace',
+  RF_PANEL_RENEW: 'rf_panel_renew',
+  RF_PANEL_LOGOUT: 'rf_panel_logout',
+  RF_PANEL_RETRY: 'rf_panel_retry',
+  RF_PICK_RENEW: 'rf_pick_renew', // select device -> renew
+  RF_PICK_REPLACE: 'rf_pick_replace', // select device -> replace
+  RF_PICK_LOGOUT: 'rf_pick_logout', // select login -> konfirmasi logout
+  RF_PICK_SYNC: 'rf_pick_sync', // select login -> sinkron sekarang
+  RF_LOGOUT_CONFIRM: 'rf_logout_confirm', // rf_logout_confirm:<loginId>:<discordId peminta>
+  RF_MODAL_REGISTER: 'rf_modal_register',
+  RF_INPUT_EMAIL: 'rf_input_email',
+
   // Modal Redfinger
   RF_MODAL_ADD: 'rf_modal_add', // rf_modal_add[:YYYY-MM-DD tanggal mulai]
   RF_MODAL_DUE: 'rf_modal_due', // rf_modal_due:<id>

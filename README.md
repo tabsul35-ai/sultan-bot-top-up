@@ -240,12 +240,14 @@ ke channel admin pada `REDFINGER_REMINDER_DAYS` (default H-7, H-3, H-1) dan saat
 **Renew / Replace / Tandai Selesai**. Tiap tahap hanya dikirim sekali per jatuh tempo; setelah renew
 (jatuh tempo berubah) siklus pengingat mulai lagi.
 
-**Otomasi browser (opsional):** `npm i playwright && npx playwright install --with-deps chromium`, lalu set
-`REDFINGER_BROWSER_ENABLED=true`, `REDFINGER_LOGIN_URL`, dan `REDFINGER_DEVICES_URL`. Job hanya login dan
-membaca masa aktif device. Kalau tanggalnya sudah bertambah, renew ditandai berhasil. Bot **tidak**
-melakukan pembayaran dan **tidak** mencoba melewati CAPTCHA/OTP/MFA. Jika muncul verifikasi, job berstatus
-"perlu verifikasi manual" dan admin diberi tahu. Selector halaman ada di
-`src/services/redfinger/browserAutomation.ts` dan **perlu disesuaikan** dengan tampilan web Redfinger yang asli.
+**Redfinger Manager (Register & sinkron otomatis):** sekali di server `npx playwright install --with-deps chromium`,
+lalu set `REDFINGER_BROWSER_ENABLED=true`. Tombol **Register** di panel meminta email + password Redfinger
+(terenkripsi). Bot login ke web Redfinger (cloudemulator.net), membaca semua device + masa aktifnya, dan
+mencatatnya otomatis, jadi tidak perlu input tanggal. Sinkron diulang tiap `REDFINGER_SYNC_INTERVAL_HOURS`.
+Bot **tidak** melakukan pembayaran dan **tidak** mencoba melewati CAPTCHA/OTP/MFA. Jika muncul verifikasi,
+tugas berstatus "perlu verifikasi manual" dan admin memakai **Retry Tasks** setelah menyelesaikannya.
+Redeem kode otomatis menyusul setelah halaman Redeem dikalibrasi (hasil Register pertama disimpan di
+`data/redfinger-diag/` di server, tanpa password/token).
 
 ---
 

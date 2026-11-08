@@ -66,6 +66,28 @@ function dueInput(label: string, value?: string) {
   return input;
 }
 
+/** Register akun Redfinger (login email + password) - bot login & sinkron device otomatis. */
+export function buildRedfingerRegisterModal(): ModalBuilder {
+  const email = new TextInputBuilder()
+    .setCustomId(CustomId.RF_INPUT_EMAIL)
+    .setLabel('Email Akun Redfinger')
+    .setPlaceholder('contoh@gmail.com')
+    .setStyle(TextInputStyle.Short)
+    .setMaxLength(200)
+    .setRequired(true);
+  const password = new TextInputBuilder()
+    .setCustomId(CustomId.RF_INPUT_PASSWORD)
+    .setLabel('Password Akun Redfinger')
+    .setPlaceholder('Disimpan terenkripsi, tidak pernah ditampilkan')
+    .setStyle(TextInputStyle.Short)
+    .setMaxLength(256)
+    .setRequired(true);
+  return new ModalBuilder()
+    .setCustomId(CustomId.RF_MODAL_REGISTER)
+    .setTitle('Register Akun Redfinger')
+    .addComponents(row(email), row(password));
+}
+
 /** /redfinger add - `startEpoch` (detik) dari opsi `mulai`, dibawa lewat customId. */
 export function buildRedfingerAddModal(startEpoch?: number): ModalBuilder {
   return new ModalBuilder()

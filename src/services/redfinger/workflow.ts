@@ -28,6 +28,15 @@ function fail(error: string): { ok: false; error: string } {
   return { ok: false, error };
 }
 
+/** Kredensial untuk otomasi: dari login Register (kalau device hasil sinkron), atau dari device itu sendiri. */
+async function credentialsFor(account: RedfingerAccount): Promise<{ username: string | null; passwordEncrypted: string | null }> {
+  if (account.loginId) {
+    const login = await prisma.redfingerLogin.findUnique({ where: { id: account.loginId } });
+    if (login) return { username: login.email, passwordEncrypted: login.passwordEncrypted };
+  }
+  return { username: account.username, passwordEncrypted: account.passwordEncrypted };
+}
+
 async function closeOpenJobs(
   accountId: string,
   status: 'SUCCESS' | 'FAILED' | 'CANCELLED',
@@ -81,8 +90,9 @@ export async function startRenew(
   if (mode === 'browser') {
     const availability = browserAutomationStatus();
     let problem = availability.available ? null : availability.reason!;
-    if (!problem && !account.username) problem = 'Email/username akun belum diisi.';
-    if (!problem && !account.passwordEncrypted) problem = 'Password akun belum disimpan (`/redfinger edit ganti_password:True`).';
+    const creds = await credentialsFor(account);
+    if (!problem && !creds.username) problem = 'Email/username akun belum diisi (atau Register akun Redfinger-nya dulu).';
+    if (!problem && !creds.passwordEncrypted) problem = 'Password belum disimpan (Register akun Redfinger, atau `/redfinger edit ganti_password:True`).';
     if (!problem && !isEncryptionConfigured()) problem = 'REDFINGER_ENCRYPTION_KEY belum diatur, password tidak bisa dibaca.';
 
     if (problem) {
@@ -126,16 +136,17 @@ export async function runBrowserJob(client: Client, jobId: string): Promise<void
       if (!job || job.status !== 'STARTED') return; // sudah dibatalkan admin saat mengantri
 
       const account = job.account;
+      const creds = await credentialsFor(account);
       let password: string;
       try {
-        password = decryptSecret(account.passwordEncrypted ?? '');
+        password = decryptSecret(creds.passwordEncrypted ?? '');
       } catch (err) {
         await applyBrowserFailure(client, job.id, account, err instanceof Error ? err.message : 'Password tidak bisa dibaca.');
         return;
       }
 
       const result = await runBrowserRenewCheck({
-        username: account.username ?? '',
+        username: creds.username ?? '',
         password,
         instanceId: account.instanceId,
         currentDueDate: account.dueDate,

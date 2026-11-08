@@ -6,3 +6,4 @@ dist/
 *.log
 _tmp_*
 .fly/
+data/

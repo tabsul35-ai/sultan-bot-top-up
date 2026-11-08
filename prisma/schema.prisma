@@ -173,6 +173,10 @@ model RedfingerAccount {
   dueDate           DateTime // tanggal jatuh tempo / habis masa aktif
   status            RedfingerStatus     @default(ACTIVE)
   notes             String?
+  loginId           String? // akun login Redfinger (Register) asal device ini - null = didaftarkan manual
+  login             RedfingerLogin?     @relation(fields: [loginId], references: [id], onDelete: SetNull)
+  region            String? // IDC/region device (hasil sinkron)
+  androidVersion    String? // versi Android device (hasil sinkron)
   replacedById      String? // akun pengganti (diisi saat status REPLACED)
   replacesId        String? // akun lama yang digantikan akun ini
   createdById       String?
@@ -239,4 +243,68 @@ model RedfingerSetting {
   logChannelId   String? // channel audit log (opsional)
   adminRoleId    String? // role tambahan yang boleh memakai /redfinger (selain Administrator/role admin toko)
   updatedAt      DateTime @updatedAt
+}
+
+// ===== Redfinger Manager: login akun Redfinger (Register) + antrian tugas otomasi =====
+
+enum RedfingerLoginStatus {
+  PENDING // baru didaftarkan, belum dicoba login
+  OK // login & sinkron device berhasil
+  BAD_CREDENTIALS // email/password ditolak Redfinger
+  NEEDS_VERIFICATION // Redfinger minta CAPTCHA/OTP/verifikasi - butuh tindakan manusia
+  FAILED // error lain (lihat lastError)
+}
+
+enum RedfingerTaskType {
+  LOGIN_SYNC // login + baca daftar device & masa aktif
+  REDEEM
+  RENEW
+  REPLACE
+}
+
+enum RedfingerTaskStatus {
+  QUEUED
+  RUNNING
+  SUCCESS
+  FAILED
+  NEEDS_VERIFICATION
+}
+
+// Kredensial login Redfinger yang didaftarkan admin lewat tombol Register. Password terenkripsi
+// AES-256-GCM (REDFINGER_ENCRYPTION_KEY) dan tidak pernah ditampilkan di Discord.
+model RedfingerLogin {
+  id                String               @id @default(cuid())
+  guildId           String
+  email             String
+  passwordEncrypted String
+  status            RedfingerLoginStatus @default(PENDING)
+  lastError         String?
+  lastSyncAt        DateTime?
+  deviceCount       Int                  @default(0)
+  createdById       String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  devices           RedfingerAccount[]
+  tasks             RedfingerTask[]
+
+  @@unique([guildId, email])
+}
+
+model RedfingerTask {
+  id         String              @id @default(cuid())
+  guildId    String
+  loginId    String?
+  login      RedfingerLogin?     @relation(fields: [loginId], references: [id], onDelete: SetNull)
+  accountId  String? // device terkait (kalau ada)
+  type       RedfingerTaskType
+  status     RedfingerTaskStatus @default(QUEUED)
+  message    String?
+  actorId    String?
+  attempts   Int                 @default(0)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  finishedAt DateTime?
+
+  @@index([guildId, status])
+  @@index([loginId])
 }

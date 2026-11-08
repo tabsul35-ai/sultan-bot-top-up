@@ -1,18 +1,39 @@
-import { ButtonInteraction, GuildMember, StringSelectMenuInteraction } from 'discord.js';
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonInteraction,
+  ButtonStyle,
+  GuildMember,
+  MessageComponentInteraction,
+  StringSelectMenuInteraction,
+} from 'discord.js';
 import { RedfingerAccount } from '@prisma/client';
-import { CustomId } from '../types/customIds';
+import { CustomId, buildCustomId } from '../types/customIds';
 import { prisma } from '../database/prisma';
 import { isRedfingerAdmin } from '../utils/permissions';
 import { errorEmbed, successEmbed, baseEmbed } from '../utils/embeds';
 import { BRAND } from '../config/config';
-import { ACTIONABLE_STATUSES, buildAccountEmbed, findAccount, statusText } from '../services/redfinger/accountService';
+import { ACTIONABLE_STATUSES, buildAccountEmbed, findAccount, maskIdentifier, statusText } from '../services/redfinger/accountService';
+import { loginsNeedingRetry, logoutLogin, managerStats, runLoginSync } from '../services/redfinger/loginService';
+import { buildRedfingerPanel } from '../panels/redfingerPanel';
 import { logRedfingerAction, renewProgressButtons, replaceProgressButtons } from '../services/redfinger/notify';
 import { cancelProcess, markProcessFailed, renewChecklistEmbed, setAccountDisabled, startRenew, startReplace } from '../services/redfinger/workflow';
-import { buildAccountPicker, buildDetailEmbed, buildListEmbed, buildSetupEmbed, deleteConfirmMessage, manageButtons } from '../services/redfinger/views';
+import {
+  buildAccountPicker,
+  buildDetailEmbed,
+  buildListEmbed,
+  buildLoginPicker,
+  buildLoginsEmbed,
+  buildSetupEmbed,
+  deleteConfirmMessage,
+  manageButtons,
+  syncResultEmbed,
+} from '../services/redfinger/views';
 import {
   buildRedfingerAddModal,
   buildRedfingerDueModal,
   buildRedfingerPasswordModal,
+  buildRedfingerRegisterModal,
   buildRedfingerReplaceModal,
 } from '../modals/redfingerModals';
 
@@ -50,7 +71,98 @@ export function replaceStartedReply(account: RedfingerAccount, note?: string) {
   };
 }
 
-export async function handleRedfingerButton(interaction: ButtonInteraction, base: string, args: string[]) {
+const NO_ACTION_STATUSES = ['REPLACED', 'DISABLED'] as const;
+
+async function handlePanelButton(interaction: ButtonInteraction, base: string, guildId: string) {
+  switch (base) {
+    case CustomId.RF_PANEL_REGISTER:
+      await interaction.showModal(buildRedfingerRegisterModal()); // harus jadi respons pertama
+      return;
+
+    case CustomId.RF_PANEL_ADD:
+      await interaction.showModal(buildRedfingerAddModal());
+      return;
+
+    case CustomId.RF_PANEL_LIST: {
+      await interaction.deferReply({ ephemeral: true });
+      const logins = await buildLoginsEmbed(guildId);
+      await interaction.editReply({ embeds: [...(logins ? [logins] : []), await buildListEmbed(guildId, null)] });
+      return;
+    }
+
+    case CustomId.RF_PANEL_SETUP:
+      await interaction.deferReply({ ephemeral: true });
+      await interaction.editReply({ embeds: [await buildSetupEmbed(guildId)] });
+      return;
+
+    case CustomId.RF_PANEL_MANAGE: {
+      await interaction.deferReply({ ephemeral: true });
+      const picker = await buildAccountPicker(guildId);
+      await interaction.editReply(picker ?? { embeds: [errorEmbed('Belum ada device. Tekan **Register** untuk login akun Redfinger.')] });
+      return;
+    }
+
+    case CustomId.RF_PANEL_RENEW:
+    case CustomId.RF_PANEL_REPLACE: {
+      await interaction.deferReply({ ephemeral: true });
+      const renew = base === CustomId.RF_PANEL_RENEW;
+      const picker = await buildAccountPicker(guildId, {
+        customId: renew ? CustomId.RF_PICK_RENEW : CustomId.RF_PICK_REPLACE,
+        placeholder: renew ? 'Pilih device yang akan di-renew...' : 'Pilih device yang akan diganti...',
+        excludeStatuses: [...NO_ACTION_STATUSES],
+      });
+      await interaction.editReply(picker ?? { embeds: [errorEmbed('Belum ada device aktif. Tekan **Register** untuk login akun Redfinger.')] });
+      return;
+    }
+
+    case CustomId.RF_PANEL_REDEEM: {
+      await interaction.deferReply({ ephemeral: true });
+      const picker = await buildLoginPicker(guildId, CustomId.RF_PICK_SYNC, 'Sudah redeem di Redfinger? Pilih akun untuk sinkron...');
+      await interaction.editReply({
+        embeds: [
+          baseEmbed()
+            .setColor(BRAND.pendingColor)
+            .setTitle('🎟️ Redeem Code')
+            .setDescription(
+              [
+                'Redeem kode otomatis **belum aktif**. Halaman Redeem Code Redfinger sedang dipelajari dari hasil Register pertama, karena kode hanya bisa dipakai sekali sehingga bot tidak boleh menebak.',
+                '',
+                '**Sementara ini:** masukkan kode di Redfinger (menu *Redeem Code*), lalu pilih akunnya di bawah supaya device baru langsung tersinkron ke bot.',
+              ].join('\n')
+            ),
+        ],
+        components: picker?.components ?? [],
+      });
+      return;
+    }
+
+    case CustomId.RF_PANEL_LOGOUT: {
+      await interaction.deferReply({ ephemeral: true });
+      const picker = await buildLoginPicker(guildId, CustomId.RF_PICK_LOGOUT, 'Pilih akun login yang akan di-logout...');
+      await interaction.editReply(picker ?? { embeds: [errorEmbed('Belum ada akun login Redfinger.')] });
+      return;
+    }
+
+    case CustomId.RF_PANEL_RETRY: {
+      await interaction.deferReply({ ephemeral: true });
+      const logins = (await loginsNeedingRetry(guildId)).slice(0, 5);
+      if (logins.length === 0) {
+        await interaction.editReply({ embeds: [successEmbed('Tidak ada tugas yang gagal. Semua akun login dalam kondisi OK.')] });
+        return;
+      }
+      await interaction.editReply({ embeds: [baseEmbed().setDescription(`⏳ Mengulang ${logins.length} tugas sinkron... (sekitar 30-60 detik per akun)`)] });
+      const embeds = [];
+      for (const login of logins) {
+        const summary = await runLoginSync(interaction.client, login.id, interaction.user.id);
+        if (summary) embeds.push(await syncResultEmbed(summary));
+      }
+      await interaction.editReply({ embeds: embeds.slice(0, 10) });
+      return;
+    }
+  }
+}
+
+export async function handleRedfingerButton(interaction: MessageComponentInteraction, base: string, args: string[]) {
   if (!(interaction.member instanceof GuildMember) || !(await isRedfingerAdmin(interaction.member))) {
     await interaction.reply({ embeds: [errorEmbed('Hanya admin Redfinger yang dapat memakai tombol ini.')], ephemeral: true });
     return;
@@ -59,31 +171,39 @@ export async function handleRedfingerButton(interaction: ButtonInteraction, base
   if (!guildId) return;
 
   if (base === CustomId.RF_DELETE_CANCEL) {
-    await interaction.update({ embeds: [successEmbed('Penghapusan dibatalkan. Tidak ada data yang diubah.')], components: [] });
+    await interaction.update({ embeds: [successEmbed('Dibatalkan. Tidak ada data yang diubah.')], components: [] });
     return;
   }
 
   // ===== Tombol panel (tanpa akun) =====
-  switch (base) {
-    case CustomId.RF_PANEL_ADD:
-      await interaction.showModal(buildRedfingerAddModal()); // harus jadi respons pertama
-      return;
-    case CustomId.RF_PANEL_LIST:
-      await interaction.deferReply({ ephemeral: true });
-      await interaction.editReply({ embeds: [await buildListEmbed(guildId, null)] });
-      return;
-    case CustomId.RF_PANEL_SETUP:
-      await interaction.deferReply({ ephemeral: true });
-      await interaction.editReply({ embeds: [await buildSetupEmbed(guildId)] });
-      return;
-    case CustomId.RF_PANEL_MANAGE: {
-      await interaction.deferReply({ ephemeral: true });
-      const picker = await buildAccountPicker(guildId);
-      await interaction.editReply(
-        picker ?? { embeds: [errorEmbed('Belum ada akun Redfinger. Tambahkan lewat tombol **Tambah Akun**.')] }
-      );
+  if (base.startsWith('rf_panel_')) {
+    await handlePanelButton(interaction as ButtonInteraction, base, guildId);
+    // Perbarui statistik di pesan panel (kalau tombol ditekan dari panel). Gagal = abaikan.
+    const msg = (interaction as ButtonInteraction).message;
+    if (msg?.embeds[0]?.title?.includes('Redfinger') && msg.author.id === interaction.client.user.id) {
+      void managerStats(guildId)
+        .then((stats) => msg.edit(buildRedfingerPanel(stats)))
+        .catch(() => {});
+    }
+    return;
+  }
+
+  if (base === CustomId.RF_LOGOUT_CONFIRM) {
+    if (args[1] !== interaction.user.id) {
+      await interaction.reply({ embeds: [errorEmbed('Konfirmasi ini hanya untuk admin yang meminta logout.')], ephemeral: true });
       return;
     }
+    const login = await prisma.redfingerLogin.findFirst({ where: { id: args[0], guildId } });
+    if (!login) {
+      await interaction.update({ embeds: [errorEmbed('Akun login sudah tidak ada.')], components: [] });
+      return;
+    }
+    await interaction.update({
+      embeds: [successEmbed(`Logout ${maskIdentifier(login.email)} berhasil. Password terenkripsinya sudah dihapus dari bot.`)],
+      components: [],
+    });
+    await logoutLogin(interaction.client, login, interaction.user.id);
+    return;
   }
 
   const account = args[0] ? await findAccount(guildId, args[0]) : null;
@@ -220,9 +340,54 @@ export async function handleRedfingerSelect(interaction: StringSelectMenuInterac
   }
   const guildId = interaction.guildId;
   if (!guildId) return;
+  const value = interaction.values[0] ?? '';
+
+  // Renew / Replace dari panel: pakai alur yang sama persis dengan tombol di notifikasi.
+  if (interaction.customId === CustomId.RF_PICK_RENEW || interaction.customId === CustomId.RF_PICK_REPLACE) {
+    await handleRedfingerButton(interaction, interaction.customId === CustomId.RF_PICK_RENEW ? CustomId.RF_RENEW : CustomId.RF_REPLACE, [value]);
+    return;
+  }
+
+  if (interaction.customId === CustomId.RF_PICK_LOGOUT || interaction.customId === CustomId.RF_PICK_SYNC) {
+    const login = await prisma.redfingerLogin.findFirst({ where: { id: value, guildId } });
+    if (!login) {
+      await interaction.reply({ embeds: [errorEmbed('Akun login tidak ditemukan (mungkin sudah logout).')], ephemeral: true });
+      return;
+    }
+
+    if (interaction.customId === CustomId.RF_PICK_LOGOUT) {
+      const buttons = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(buildCustomId(CustomId.RF_LOGOUT_CONFIRM, login.id, interaction.user.id))
+          .setLabel('Ya, logout & hapus password')
+          .setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId(CustomId.RF_DELETE_CANCEL).setLabel('Batal').setStyle(ButtonStyle.Secondary)
+      );
+      await interaction.reply({
+        embeds: [
+          baseEmbed()
+            .setColor(BRAND.errorColor)
+            .setTitle(`🚪 Logout ${maskIdentifier(login.email)}?`)
+            .setDescription(
+              `Email & password terenkripsi akun ini akan **dihapus dari bot**. ${login.deviceCount} device yang sudah tercatat tetap ada (tidak disinkron otomatis lagi).`
+            ),
+        ],
+        components: [buttons],
+        ephemeral: true,
+      });
+      return;
+    }
+
+    // Sinkron sekarang (mis. setelah redeem manual di Redfinger)
+    await interaction.deferReply({ ephemeral: true });
+    await interaction.editReply({ embeds: [baseEmbed().setDescription(`⏳ Login & sinkron ${maskIdentifier(login.email)}... (sekitar 30-60 detik)`)] });
+    const summary = await runLoginSync(interaction.client, login.id, interaction.user.id);
+    await interaction.editReply({ embeds: [summary ? await syncResultEmbed(summary) : errorEmbed('Sinkron gagal dijalankan. Cek log bot.')] });
+    return;
+  }
 
   await interaction.deferUpdate();
-  const account = await findAccount(guildId, interaction.values[0] ?? '');
+  const account = await findAccount(guildId, value);
   if (!account) {
     await interaction.editReply({ content: null, embeds: [errorEmbed('Akun tidak ditemukan (mungkin sudah dihapus).')], components: [] });
     return;

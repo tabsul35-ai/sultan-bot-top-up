@@ -92,7 +92,7 @@ export async function handleInteraction(interaction: Interaction) {
     }
 
     if (interaction.isStringSelectMenu()) {
-      if (interaction.customId === CustomId.RF_PANEL_SELECT) {
+      if (interaction.customId.startsWith('rf_')) {
         return void (await handleRedfingerSelect(interaction));
       }
       if (interaction.customId === CustomId.SELECT_ROBUX_AMOUNT) {

@@ -6,6 +6,7 @@ import { MONITORED_STATUSES, buildAccountEmbed, statusText, timeBasedStatus } fr
 import { calendarDaysLeft } from './dates';
 import { logRedfingerAction, reminderButtons, sendAdminNotification } from './notify';
 import { recoverInterruptedJobs } from './workflow';
+import { recoverInterruptedTasks, runLoginSync } from './loginService';
 
 /**
  * Scheduler masa aktif Redfinger. Tiap REDFINGER_CHECK_INTERVAL_MINUTES:
@@ -117,6 +118,32 @@ async function processAccount(client: Client, original: RedfingerAccount, now: D
   });
 }
 
+let syncing = false;
+
+/**
+ * Sinkron ulang akun login yang statusnya OK dan sinkron terakhirnya lebih lama dari
+ * REDFINGER_SYNC_INTERVAL_HOURS - masa aktif di bot selalu mengikuti Redfinger (mis. setelah
+ * renew dilakukan di luar bot). Login yang gagal/perlu verifikasi TIDAK dicoba ulang otomatis
+ * (supaya tidak memicu blokir); admin memakai tombol Retry Tasks.
+ */
+async function runPeriodicSync(client: Client): Promise<void> {
+  const hours = redfingerConfig.syncIntervalHours;
+  if (hours <= 0 || syncing) return;
+  syncing = true;
+  try {
+    const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
+    const logins = await prisma.redfingerLogin.findMany({
+      where: { status: 'OK', OR: [{ lastSyncAt: null }, { lastSyncAt: { lt: cutoff } }] },
+      select: { id: true },
+    });
+    for (const { id } of logins) await runLoginSync(client, id, null);
+  } catch (err) {
+    console.error('[redfinger] Sinkron berkala gagal:', err);
+  } finally {
+    syncing = false;
+  }
+}
+
 /** Satu putaran pengecekan untuk semua guild. Aman dipanggil kapan saja (tidak tumpang tindih). */
 export async function runRedfingerCheck(client: Client): Promise<void> {
   if (running) return;
@@ -148,11 +175,13 @@ export function startRedfingerScheduler(client: Client): void {
 
   void (async () => {
     await recoverInterruptedJobs(client).catch((err) => console.error('[redfinger] recoverInterruptedJobs:', err));
+    await recoverInterruptedTasks().catch((err) => console.error('[redfinger] recoverInterruptedTasks:', err));
     await runRedfingerCheck(client);
   })();
 
   setInterval(() => {
     void runRedfingerCheck(client);
+    void runPeriodicSync(client);
   }, redfingerConfig.checkIntervalMinutes * 60 * 1000);
 
   console.log(
